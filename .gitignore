@@ -1,0 +1,11 @@
+node_modules/
+build/
+.DS_Store
+.env.local
+.env
+npm-debug.log*
+.cache/
+node_modules/
+node_modules/.cache/
+node_modules/
+node_modules/.cache/
