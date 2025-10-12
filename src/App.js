@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Star, Film, LogIn, LogOut, Edit, Save, X, Upload, Menu, Users, Trophy, Plus, Trash2 } from 'lucide-react';
+import { Star, Film, LogIn, LogOut, Edit, Save, X, Upload, Menu, Users, Trophy, Plus, Trash2, Database } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -21,7 +21,7 @@ const storage = getStorage(app);
 
 const ADMIN_EMAILS = ['mdernlan@gmail.com', 'gkovacs55@gmail.com', 'ryanpfleiderer12@gmail.com'];
 
-// Map email to member ID
+// Maps email addresses to member IDs
 const EMAIL_TO_MEMBER_ID = {
   'mdernlan@gmail.com': 'matt',
   'colinjsherman@gmail.com': 'colin',
@@ -52,12 +52,13 @@ function App() {
     date: '', emoji: '🎬', type: 'bmn', attendees: []
   });
   const [userVote, setUserVote] = useState({ score: 50, text: '', thumbs: 'neutral' });
+  const [filmVotes, setFilmVotes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isAdmin = user && ADMIN_EMAILS.includes(user.email);
 
   useEffect(() => {
-    onAuthStateChanged(auth, async (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
         const memberId = EMAIL_TO_MEMBER_ID[u.email];
@@ -65,25 +66,61 @@ function App() {
           const memberDoc = await getDoc(doc(db, 'members', memberId));
           if (memberDoc.exists()) {
             setUserProfile({ id: memberId, ...memberDoc.data() });
+          } else {
+            // Member ID exists but no profile in database yet
+            setUserProfile({ id: memberId, email: u.email, name: memberId });
           }
+        } else {
+          // Email not in mapping
+          setUserProfile(null);
+          console.warn('User email not mapped to a member profile:', u.email);
         }
       } else {
         setUserProfile(null);
       }
     });
     loadData();
+    return () => unsubscribe();
   }, []);
+
+  // Load votes when a film is selected
+  useEffect(() => {
+    if (selectedFilm) {
+      loadFilmVotes(selectedFilm.id);
+    }
+  }, [selectedFilm]);
+
+  const loadFilmVotes = async (filmId) => {
+    try {
+      const votesSnap = await getDocs(collection(db, 'films', filmId, 'votes'));
+      const votesData = votesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setFilmVotes(votesData);
+    } catch (err) {
+      console.error('Error loading votes:', err);
+      setFilmVotes([]);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
     try {
       const filmsSnap = await getDocs(collection(db, 'films'));
       const filmsData = filmsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setFilms(filmsData.length > 0 ? filmsData : getInitialFilms());
+      
+      if (filmsData.length === 0) {
+        setFilms(getInitialFilms());
+      } else {
+        setFilms(filmsData);
+      }
 
       const membersSnap = await getDocs(collection(db, 'members'));
       const membersData = membersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setMembers(membersData.length > 0 ? membersData : getInitialMembers());
+      
+      if (membersData.length === 0) {
+        setMembers(getInitialMembers());
+      } else {
+        setMembers(membersData);
+      }
     } catch (err) {
       console.error('Load error:', err);
       setFilms(getInitialFilms());
@@ -92,10 +129,35 @@ function App() {
     setLoading(false);
   };
 
+  const seedDatabase = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm('This will add all initial films and members to the database. Continue?')) return;
+    
+    try {
+      const initialFilms = getInitialFilms();
+      const initialMembers = getInitialMembers();
+      
+      for (const film of initialFilms) {
+        await setDoc(doc(db, 'films', film.id), film);
+      }
+      
+      for (const member of initialMembers) {
+        await setDoc(doc(db, 'members', member.id), member);
+      }
+      
+      alert('Database seeded successfully!');
+      loadData();
+    } catch (err) {
+      alert('Error seeding database: ' + err.message);
+    }
+  };
+
   const handleLogin = async () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setShowLogin(false);
+      setEmail('');
+      setPassword('');
       alert('Login successful!');
     } catch (err) {
       alert('Login failed: ' + err.message);
@@ -103,41 +165,81 @@ function App() {
   };
 
   const handleVote = async () => {
-    if (!user || !selectedFilm) return;
+    if (!user || !selectedFilm || !userProfile) {
+      alert('You must be logged in with a valid member profile to vote!');
+      return;
+    }
+    
     try {
+      // Create comprehensive vote data linked to member profile
       const voteData = {
-        userId: user.uid,
-        userName: userProfile?.name || user.email,
+        // Firebase Auth identifiers
+        authUserId: user.uid,
+        authUserEmail: user.email,
+        
+        // Member profile identifiers
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        
+        // Vote content
         score: userVote.score,
         text: userVote.text,
         thumbs: userVote.thumbs,
-        timestamp: new Date().toISOString()
+        
+        // Metadata
+        timestamp: new Date().toISOString(),
+        filmId: selectedFilm.id,
+        filmTitle: selectedFilm.title
       };
-      await setDoc(doc(db, 'films', selectedFilm.id, 'votes', user.uid), voteData);
       
+      console.log('Submitting vote:', voteData);
+      
+      // Save vote using member ID as the document ID for easy lookup
+      await setDoc(doc(db, 'films', selectedFilm.id, 'votes', userProfile.id), voteData);
+      
+      // Recalculate average score
       const votesSnap = await getDocs(collection(db, 'films', selectedFilm.id, 'votes'));
       const votes = votesSnap.docs.map(d => d.data());
-      const avgScore = Math.round(votes.reduce((sum, v) => sum + v.score, 0) / votes.length);
+      const avgScore = votes.length > 0 
+        ? Math.round(votes.reduce((sum, v) => sum + v.score, 0) / votes.length)
+        : userVote.score;
       
+      // Update the film's BMN score
       await updateDoc(doc(db, 'films', selectedFilm.id), { bmnScore: avgScore });
       
-      alert('Vote submitted!');
-      loadData();
-      setSelectedFilm({ ...selectedFilm, bmnScore: avgScore });
+      alert(`Vote submitted successfully as ${userProfile.name}! New BMN Score: ${avgScore}`);
+      
+      // Reload data
+      await loadData();
+      await loadFilmVotes(selectedFilm.id);
+      
+      const updatedFilm = { ...selectedFilm, bmnScore: avgScore };
+      setSelectedFilm(updatedFilm);
+      
+      // Reset vote form
+      setUserVote({ score: 50, text: '', thumbs: 'neutral' });
     } catch (err) {
+      console.error('Vote error:', err);
       alert('Error submitting vote: ' + err.message);
     }
   };
 
   const saveFilm = async () => {
     if (!editingFilm) return;
+    
     try {
       await setDoc(doc(db, 'films', editingFilm.id), editingFilm);
-      alert('Film saved!');
+      alert('Film saved successfully!');
       setEditingFilm(null);
-      loadData();
+      
+      await loadData();
+      
+      if (selectedFilm && selectedFilm.id === editingFilm.id) {
+        setSelectedFilm(editingFilm);
+      }
     } catch (err) {
-      alert('Error saving: ' + err.message);
+      console.error('Save error:', err);
+      alert('Error saving film: ' + err.message);
     }
   };
 
@@ -146,57 +248,79 @@ function App() {
       alert('Please fill in at least the title');
       return;
     }
+    
     try {
       const filmId = newFilm.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-      await setDoc(doc(db, 'films', filmId), { ...newFilm, id: filmId });
+      const filmData = { 
+        ...newFilm, 
+        id: filmId,
+        bmnScore: parseInt(newFilm.bmnScore) || 50,
+        rtScore: newFilm.rtScore ? parseInt(newFilm.rtScore) : null
+      };
+      
+      await setDoc(doc(db, 'films', filmId), filmData);
       alert('Film added successfully!');
       setShowAddFilm(false);
       setNewFilm({
         title: '', subtitle: '', image: '', rtScore: '', bmnScore: 50,
         date: '', emoji: '🎬', type: 'bmn', attendees: []
       });
-      loadData();
+      
+      await loadData();
     } catch (err) {
+      console.error('Add film error:', err);
       alert('Error adding film: ' + err.message);
     }
   };
 
   const deleteFilm = async (filmId) => {
     if (!isAdmin) return;
-    if (window.confirm('Are you sure you want to delete this film?')) {
-      try {
-        await deleteDoc(doc(db, 'films', filmId));
-        alert('Film deleted!');
-        setPage('home');
-        loadData();
-      } catch (err) {
-        alert('Error deleting: ' + err.message);
-      }
+    if (!window.confirm('Are you sure you want to delete this film? This cannot be undone!')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'films', filmId));
+      alert('Film deleted successfully!');
+      setSelectedFilm(null);
+      setPage('home');
+      await loadData();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Error deleting film: ' + err.message);
     }
   };
 
   const saveProfile = async () => {
     if (!editingProfile) return;
+    
     try {
       await setDoc(doc(db, 'members', editingProfile.id), editingProfile);
-      alert('Profile saved!');
+      alert('Profile saved successfully!');
       setEditingProfile(null);
-      loadData();
+      
+      await loadData();
+      
       if (userProfile && editingProfile.id === userProfile.id) {
         setUserProfile(editingProfile);
       }
+      if (selectedMember && editingProfile.id === selectedMember.id) {
+        setSelectedMember(editingProfile);
+      }
     } catch (err) {
-      alert('Error saving: ' + err.message);
+      console.error('Profile save error:', err);
+      alert('Error saving profile: ' + err.message);
     }
   };
 
   const uploadImage = async (file, type, id) => {
+    if (!file) return null;
+    
     try {
       const storageRef = ref(storage, `${type}/${id}/${file.name}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
       return url;
     } catch (err) {
+      console.error('Upload error:', err);
       alert('Upload failed: ' + err.message);
       return null;
     }
@@ -259,9 +383,12 @@ function App() {
               {user && <button onClick={() => setPage('profile')} className="hover:text-blue-300 transition font-medium">Profile</button>}
               {isAdmin && <button onClick={() => setPage('admin')} className="hover:text-blue-300 transition font-medium">Admin</button>}
               {user ? (
-                <button onClick={() => signOut(auth)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition shadow-lg font-medium">
-                  <LogOut className="w-4 h-4" />Logout
-                </button>
+                <div className="flex items-center gap-3">
+                  {userProfile && <span className="text-sm text-blue-200">Hi, {userProfile.name}!</span>}
+                  <button onClick={() => signOut(auth)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition shadow-lg font-medium">
+                    <LogOut className="w-4 h-4" />Logout
+                  </button>
+                </div>
               ) : (
                 <button onClick={() => setShowLogin(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg hover:from-blue-600 hover:to-purple-700 transition shadow-lg font-medium">
                   <LogIn className="w-4 h-4" />Login
@@ -272,6 +399,7 @@ function App() {
 
           {showMobileMenu && (
             <div className="md:hidden mt-4 space-y-2 pb-4 border-t border-white/10 pt-4">
+              {userProfile && <div className="text-sm text-blue-200 py-2">Hi, {userProfile.name}!</div>}
               <button onClick={() => { setPage('home'); setShowMobileMenu(false); }} className="block w-full text-left py-2 hover:text-blue-300 font-medium">Home</button>
               <button onClick={() => { setPage('members'); setShowMobileMenu(false); }} className="block w-full text-left py-2 hover:text-blue-300 font-medium">Members</button>
               <button onClick={() => { setPage('leaderboard'); setShowMobileMenu(false); }} className="block w-full text-left py-2 hover:text-blue-300 font-medium">Leaderboard</button>
@@ -296,13 +424,15 @@ function App() {
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Email</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} 
                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
-                       placeholder="your@email.com" />
+                       placeholder="your@email.com" 
+                       onKeyPress={e => e.key === 'Enter' && handleLogin()} />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Password</label>
                 <input type="password" value={password} onChange={e => setPassword(e.target.value)} 
                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
-                       placeholder="••••••••" />
+                       placeholder="••••••••"
+                       onKeyPress={e => e.key === 'Enter' && handleLogin()} />
               </div>
               <button onClick={handleLogin} 
                       className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition shadow-lg">
@@ -339,14 +469,19 @@ function App() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700">RT Score</label>
-                  <input type="number" value={newFilm.rtScore} onChange={e => setNewFilm({ ...newFilm, rtScore: parseInt(e.target.value) })} 
+                  <input type="number" value={newFilm.rtScore} onChange={e => setNewFilm({ ...newFilm, rtScore: e.target.value })} 
                          className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700">Emoji</label>
-                  <input type="text" value={newFilm.emoji} onChange={e => setNewFilm({ ...newFilm, emoji: e.target.value })} 
-                         className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition text-3xl" />
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">Initial BMN Score</label>
+                  <input type="number" value={newFilm.bmnScore} onChange={e => setNewFilm({ ...newFilm, bmnScore: e.target.value })} 
+                         className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Emoji</label>
+                <input type="text" value={newFilm.emoji} onChange={e => setNewFilm({ ...newFilm, emoji: e.target.value })} 
+                       className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition text-3xl" />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Date</label>
@@ -395,25 +530,43 @@ function App() {
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Or Upload Image</label>
-                <input type="file" accept="image/*" onChange={async e => { const url = await uploadImage(e.target.files[0], 'films', editingFilm.id); if (url) setEditingFilm({ ...editingFilm, image: url }); }} 
+                <input type="file" accept="image/*" onChange={async e => { 
+                  if (e.target.files[0]) {
+                    const url = await uploadImage(e.target.files[0], 'films', editingFilm.id); 
+                    if (url) setEditingFilm({ ...editingFilm, image: url }); 
+                  }
+                }} 
                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700">RT Score</label>
-                  <input type="number" value={editingFilm.rtScore || ''} onChange={e => setEditingFilm({ ...editingFilm, rtScore: parseInt(e.target.value) })} 
+                  <input type="number" value={editingFilm.rtScore || ''} onChange={e => setEditingFilm({ ...editingFilm, rtScore: e.target.value ? parseInt(e.target.value) : null })} 
                          className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2 text-gray-700">Emoji</label>
-                  <input type="text" value={editingFilm.emoji} onChange={e => setEditingFilm({ ...editingFilm, emoji: e.target.value })} 
-                         className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition text-3xl" />
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">BMN Score</label>
+                  <input type="number" value={editingFilm.bmnScore || 50} onChange={e => setEditingFilm({ ...editingFilm, bmnScore: parseInt(e.target.value) || 50 })} 
+                         className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Emoji</label>
+                <input type="text" value={editingFilm.emoji} onChange={e => setEditingFilm({ ...editingFilm, emoji: e.target.value })} 
+                       className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition text-3xl" />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Date</label>
                 <input type="date" value={editingFilm.date} onChange={e => setEditingFilm({ ...editingFilm, date: e.target.value })} 
                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Type</label>
+                <select value={editingFilm.type || 'bmn'} onChange={e => setEditingFilm({ ...editingFilm, type: e.target.value })} 
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition">
+                  <option value="bmn">BMN Screening</option>
+                  <option value="offsite-film">Offsite Film</option>
+                </select>
               </div>
               <button onClick={saveFilm} 
                       className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition shadow-lg flex items-center justify-center gap-2">
@@ -454,14 +607,19 @@ function App() {
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Or Upload Photo</label>
-                <input type="file" accept="image/*" onChange={async e => { const url = await uploadImage(e.target.files[0], 'members', editingProfile.id); if (url) setEditingProfile({ ...editingProfile, image: url }); }} 
+                <input type="file" accept="image/*" onChange={async e => { 
+                  if (e.target.files[0]) {
+                    const url = await uploadImage(e.target.files[0], 'members', editingProfile.id); 
+                    if (url) setEditingProfile({ ...editingProfile, image: url }); 
+                  }
+                }} 
                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" />
               </div>
               {isAdmin && (
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700">Emojis (comma separated)</label>
                   <input type="text" value={editingProfile.emojis?.join(',') || ''} 
-                         onChange={e => setEditingProfile({ ...editingProfile, emojis: e.target.value.split(',').map(s => s.trim()) })} 
+                         onChange={e => setEditingProfile({ ...editingProfile, emojis: e.target.value.split(',').map(s => s.trim()).filter(s => s) })} 
                          className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
                          placeholder="🏐,🦈,❄️" />
                 </div>
@@ -526,7 +684,7 @@ function App() {
           {page === 'detail' && selectedFilm && (
             <div className="min-h-screen">
               <div className="max-w-6xl mx-auto px-4 py-8">
-                <div className="flex gap-4 mb-6">
+                <div className="flex gap-4 mb-6 flex-wrap">
                   <button onClick={() => setPage('home')} 
                           className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-md hover:shadow-lg transition">
                     ← Back
@@ -553,7 +711,7 @@ function App() {
                       <h1 className="text-5xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">{selectedFilm.title}</h1>
                       {selectedFilm.subtitle && <p className="text-2xl text-gray-600 mb-6">{selectedFilm.subtitle}</p>}
                       <p className="text-gray-500 mb-8 text-lg">{new Date(selectedFilm.date).toLocaleDateString()}</p>
-                      <div className="flex gap-8 mb-8 items-center">
+                      <div className="flex gap-8 mb-8 items-center flex-wrap">
                         <div className="text-7xl">{selectedFilm.emoji}</div>
                         {selectedFilm.rtScore && (
                           <div className="text-center bg-gradient-to-br from-red-50 to-red-100 px-6 py-4 rounded-2xl shadow-md">
@@ -574,7 +732,8 @@ function App() {
                       </div>
                     </div>
                   </div>
-                  {user && (
+                  
+                  {user && userProfile && (
                     <div className="border-t-2 border-gray-100 pt-8 mb-8">
                       <h2 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Cast Your Vote</h2>
                       <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border border-blue-100">
@@ -585,24 +744,24 @@ function App() {
                                  className="w-full h-3 bg-gradient-to-r from-blue-200 to-purple-200 rounded-lg appearance-none cursor-pointer" />
                         </div>
                         <div className="mb-6">
-                          <label className="block text-sm font-semibold mb-2 text-gray-700">Review</label>
+                          <label className="block text-sm font-semibold mb-2 text-gray-700">Review (optional)</label>
                           <textarea value={userVote.text} onChange={e => setUserVote({ ...userVote, text: e.target.value })} 
                                     className="w-full p-4 border-2 border-blue-200 rounded-xl bg-white focus:border-blue-500 focus:outline-none transition" 
                                     rows="3" placeholder="What made this movie terrible?" />
                         </div>
                         <div className="mb-6">
                           <label className="block text-sm font-semibold mb-3 text-gray-700">Rating</label>
-                          <div className="flex gap-3">
+                          <div className="grid grid-cols-3 gap-3">
                             <button onClick={() => setUserVote({ ...userVote, thumbs: 'neutral' })} 
-                                    className={`flex-1 px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'neutral' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-600 hover:border-blue-300'}`}>
+                                    className={`px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'neutral' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-600 hover:border-blue-300'}`}>
                               👍 Neutral
                             </button>
                             <button onClick={() => setUserVote({ ...userVote, thumbs: 'down' })} 
-                                    className={`flex-1 px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'down' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-300 bg-white text-gray-600 hover:border-orange-300'}`}>
+                                    className={`px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'down' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-300 bg-white text-gray-600 hover:border-orange-300'}`}>
                               👎 Down
                             </button>
                             <button onClick={() => setUserVote({ ...userVote, thumbs: 'double-down' })} 
-                                    className={`flex-1 px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'double-down' ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 bg-white text-gray-600 hover:border-red-300'}`}>
+                                    className={`px-4 py-3 rounded-xl border-2 font-medium transition ${userVote.thumbs === 'double-down' ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 bg-white text-gray-600 hover:border-red-300'}`}>
                               👎👎 Double Down
                             </button>
                           </div>
@@ -611,12 +770,53 @@ function App() {
                                 className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-4 rounded-xl font-bold text-lg hover:from-blue-600 hover:to-purple-700 transition shadow-lg">
                           Submit Vote
                         </button>
+                        <p className="text-sm text-gray-600 text-center mt-3">
+                          Voting as <span className="font-semibold text-blue-600">{userProfile.name}</span> (Member ID: {userProfile.id})
+                        </p>
                       </div>
                     </div>
                   )}
+
+                  {filmVotes.length > 0 && (
+                    <div className="border-t-2 border-gray-100 pt-8 mb-8">
+                      <h3 className="text-2xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                        Member Votes ({filmVotes.length})
+                      </h3>
+                      <div className="space-y-3">
+                        {filmVotes.map(vote => (
+                          <div key={vote.id} className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl border border-blue-100">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="font-semibold text-gray-800">{vote.memberName}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-2xl">{vote.thumbs === 'neutral' ? '👍' : vote.thumbs === 'down' ? '👎' : '👎👎'}</span>
+                                <span className="text-xl font-bold text-blue-700">{vote.score}</span>
+                              </div>
+                            </div>
+                            {vote.text && <p className="text-gray-700 text-sm italic">"{vote.text}"</p>}
+                            <p className="text-xs text-gray-500 mt-2">
+                              {new Date(vote.timestamp).toLocaleDateString()} • Member ID: {vote.memberId}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   {!user && (
                     <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-l-4 border-yellow-500 p-6 rounded-xl shadow-md">
-                      <p className="text-yellow-800 font-semibold text-lg">Please login to vote!</p>
+                      <p className="text-yellow-800 font-semibold text-lg mb-3">Please login to vote and see member reviews!</p>
+                      <button onClick={() => setShowLogin(true)} 
+                              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition font-medium">
+                        Login Now
+                      </button>
+                    </div>
+                  )}
+
+                  {user && !userProfile && (
+                    <div className="bg-gradient-to-r from-red-50 to-orange-50 border-l-4 border-red-500 p-6 rounded-xl shadow-md">
+                      <p className="text-red-800 font-semibold text-lg">
+                        Your email ({user.email}) is not linked to a member profile. Contact an admin to get set up!
+                      </p>
                     </div>
                   )}
                 </div>
@@ -660,7 +860,7 @@ function App() {
                           className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-md hover:shadow-lg transition">
                     ← Back
                   </button>
-                  {(isAdmin || user?.uid === selectedMember.id || userProfile?.id === selectedMember.id) && (
+                  {(isAdmin || userProfile?.id === selectedMember.id) && (
                     <button onClick={() => setEditingProfile(selectedMember)} 
                             className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl hover:from-blue-600 hover:to-purple-700 transition shadow-lg flex items-center gap-2 font-medium">
                       <Edit className="w-4 h-4" />Edit Profile
@@ -672,7 +872,8 @@ function App() {
                     <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-2xl shadow-xl object-cover" />
                     <div className="flex-1">
                       <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">{selectedMember.name}</h1>
-                      <p className="text-xl text-gray-600 mb-6">{selectedMember.title}</p>
+                      <p className="text-xl text-gray-600 mb-2">{selectedMember.title}</p>
+                      <p className="text-sm text-gray-500 mb-6">Member ID: {selectedMember.id}</p>
                       <p className="text-gray-700 leading-relaxed">{selectedMember.bio}</p>
                     </div>
                   </div>
@@ -699,12 +900,13 @@ function App() {
                 <h2 className="text-5xl font-bold mb-12 text-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">My Profile</h2>
                 {userProfile ? (
                   <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
-                    <div className="flex justify-between items-start mb-8">
-                      <div className="flex gap-8">
+                    <div className="flex justify-between items-start mb-8 flex-wrap gap-4">
+                      <div className="flex gap-8 flex-wrap">
                         <img src={userProfile.image} alt={userProfile.name} className="w-32 h-32 rounded-2xl object-cover shadow-lg" />
                         <div>
                           <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">{userProfile.name}</h1>
-                          <p className="text-xl text-gray-600 mb-4">{userProfile.title}</p>
+                          <p className="text-xl text-gray-600 mb-2">{userProfile.title}</p>
+                          <p className="text-sm text-gray-500 mb-4">Member ID: {userProfile.id} | Email: {user.email}</p>
                           <p className="text-gray-700">{userProfile.bio}</p>
                         </div>
                       </div>
@@ -728,7 +930,8 @@ function App() {
                   </div>
                 ) : (
                   <div className="bg-white rounded-2xl shadow-2xl p-12 text-center border border-gray-100">
-                    <p className="text-gray-600 text-lg">Profile not found. Contact admin to set up your profile.</p>
+                    <p className="text-gray-600 text-lg mb-4">Profile not found for your email: {user.email}</p>
+                    <p className="text-gray-500">Contact an admin to get your member profile set up!</p>
                   </div>
                 )}
               </div>
@@ -741,7 +944,7 @@ function App() {
                 <h2 className="text-5xl font-bold mb-12 text-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Admin Panel</h2>
                 <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
                   <h3 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Quick Actions</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <button onClick={() => setShowAddFilm(true)} 
                             className="p-8 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:from-blue-600 hover:to-purple-700 transition shadow-lg font-bold text-lg flex items-center justify-center gap-3">
                       <Plus className="w-6 h-6" />Add New Film
@@ -750,8 +953,39 @@ function App() {
                             className="p-8 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:from-blue-600 hover:to-purple-700 transition shadow-lg font-bold text-lg flex items-center justify-center gap-3">
                       <Users className="w-6 h-6" />Manage Members
                     </button>
+                    <button onClick={seedDatabase} 
+                            className="p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-2xl hover:from-green-600 hover:to-green-700 transition shadow-lg font-bold text-lg flex items-center justify-center gap-3">
+                      <Database className="w-6 h-6" />Seed Database
+                    </button>
                   </div>
-                  <p className="text-gray-600 mt-8 text-center text-lg">Use the edit buttons on films and profiles to make changes.</p>
+                  
+                  <div className="bg-blue-50 rounded-xl border border-blue-200 p-6 mb-6">
+                    <h4 className="font-bold text-lg mb-3 text-blue-900">📋 Database Structure Overview</h4>
+                    <div className="space-y-2 text-sm text-gray-700">
+                      <p><strong>Films:</strong> <code className="bg-white px-2 py-1 rounded">films/[filmId]</code></p>
+                      <p><strong>Film Votes:</strong> <code className="bg-white px-2 py-1 rounded">films/[filmId]/votes/[memberId]</code></p>
+                      <p><strong>Members:</strong> <code className="bg-white px-2 py-1 rounded">members/[memberId]</code></p>
+                      <p className="mt-3 text-xs text-gray-600">Votes are stored with both Firebase Auth UID and Member ID for full traceability</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50 rounded-xl border border-purple-200 p-6">
+                    <h4 className="font-bold text-lg mb-3 text-purple-900">🔗 Email to Member ID Mapping</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                      {Object.entries(EMAIL_TO_MEMBER_ID).map(([email, memberId]) => (
+                        <div key={email} className="bg-white p-2 rounded flex justify-between">
+                          <span className="text-gray-700">{email}</span>
+                          <span className="font-semibold text-purple-700">→ {memberId}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border-2 border-blue-200">
+                    <h4 className="font-bold text-lg mb-2 text-blue-900">✅ First Time Setup</h4>
+                    <p className="text-gray-700 mb-3">If films or members are missing, click "Seed Database" to load all initial data into Firebase.</p>
+                    <p className="text-sm text-gray-600">After seeding, all votes will be properly linked to member profiles using the mapping above.</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -778,6 +1012,7 @@ function App() {
                         <div className="flex-1">
                           <div className="font-bold text-xl text-gray-800">{m.name}</div>
                           <div className="text-sm text-gray-600">{m.title}</div>
+                          <div className="text-xs text-gray-500 mt-1">ID: {m.id}</div>
                         </div>
                         <div className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                           {m.emojis?.length || 0} badges
