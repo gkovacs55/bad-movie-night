@@ -1,4 +1,13 @@
-import React, { useState, useEffect } from 'react';
+{sub.youtubeLink && (
+
+href={sub.youtubeLink}
+target="_blank"
+rel="noopener noreferrer"
+className="text-blue-500 hover:underline mb-4 block"{sub.youtubeLink && (
+  <a href={sub.youtubeLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mb-4 block">
+    Watch Trailer
+  </a>
+)}import React, { useState, useEffect } from 'react';
 import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, X, Plus, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
