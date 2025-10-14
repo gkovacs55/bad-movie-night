@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, X, Plus, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, Save, X, Upload, Plus, ThumbsUp, ThumbsDown, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, orderBy, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
@@ -19,7 +19,6 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-const TMDB_API_KEY = '11401d9c35c69b08ba40d2e88a057c41';
 const TMDB_API_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIxMTQwMWQ5YzM1YzY5YjA4YmE0MGQyZTg4YTA1N2M0MSIsIm5iZiI6MTc2MDM5NjI3MS44MzYsInN1YiI6IjY4ZWQ4M2VmOTYwMmUzNDQ2NDlkZjFjNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.UQRRhgCKTHGM008164D9UPyR2Sj6avJx_IpI6-AjTTc';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -44,12 +43,13 @@ function App() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [showLogin, setShowLogin] = useState(true);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showAddFilm, setShowAddFilm] = useState(false);
   const [showSubmitMovie, setShowSubmitMovie] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [forgotPassword, setForgotPassword] = useState(false);
+  const [editingFilm, setEditingFilm] = useState(null);
+  const [editingProfile, setEditingProfile] = useState(null);
   const [newFilm, setNewFilm] = useState({
     title: '', subtitle: '', image: '', bmnPoster: '', rtScore: '', popcornScore: '',
     bmnScore: 50, date: '', emoji: '🎬', type: 'bmn', trailer: ''
@@ -64,6 +64,7 @@ function App() {
   const [pendingVotes, setPendingVotes] = useState([]);
   const [tmdbData, setTmdbData] = useState(null);
   const [searchingTmdb, setSearchingTmdb] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const isAdmin = user && Object.keys(EMAIL_TO_MEMBER_ID).includes(user.email);
 
@@ -162,6 +163,81 @@ function App() {
     setPage('home');
   };
 
+  const handleImageUpload = async (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    try {
+      const storageRef = ref(storage, `${type}/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      
+      if (type === 'members' && editingProfile) {
+        setEditingProfile({ ...editingProfile, image: url });
+      } else if (type === 'films' && editingFilm) {
+        setEditingFilm({ ...editingFilm, image: url });
+      }
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+    setUploadingImage(false);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editingProfile) return;
+    try {
+      await updateDoc(doc(db, 'members', editingProfile.id), {
+        name: editingProfile.name,
+        title: editingProfile.title,
+        bio: editingProfile.bio,
+        image: editingProfile.image
+      });
+      await loadData();
+      setEditingProfile(null);
+      alert('Profile updated!');
+    } catch (err) {
+      alert('Save failed: ' + err.message);
+    }
+  };
+
+  const handleSaveFilm = async () => {
+    if (!editingFilm) return;
+    try {
+      await updateDoc(doc(db, 'films', editingFilm.id), editingFilm);
+      await loadData();
+      setEditingFilm(null);
+      setSelectedFilm(null);
+      alert('Film updated!');
+    } catch (err) {
+      alert('Save failed: ' + err.message);
+    }
+  };
+
+  const handleDeleteFilm = async (filmId) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to delete this film?')) return;
+    try {
+      await deleteDoc(doc(db, 'films', filmId));
+      await loadData();
+      setPage('home');
+      alert('Film deleted!');
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
+  const handleDeleteBuzzItem = async (itemId) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to delete this?')) return;
+    try {
+      await deleteDoc(doc(db, 'buzzFeed', itemId));
+      await loadData();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
   const handleVoteSubmit = async (filmId) => {
     if (!userProfile) return;
     
@@ -243,6 +319,51 @@ function App() {
       [`votes.${userProfile.id}`]: vote
     });
     await loadData();
+  };
+
+  const handleAddFilm = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    try {
+      await addDoc(collection(db, 'films'), {
+        ...newFilm,
+        rtScore: parseInt(newFilm.rtScore),
+        popcornScore: parseInt(newFilm.popcornScore || 0),
+        bmnScore: parseInt(newFilm.bmnScore)
+      });
+      setNewFilm({
+        title: '', subtitle: '', image: '', bmnPoster: '', rtScore: '', popcornScore: '',
+        bmnScore: 50, date: '', emoji: '🎬', type: 'bmn', trailer: ''
+      });
+      setShowAddFilm(false);
+      await loadData();
+      alert('Film added!');
+    } catch (err) {
+      alert('Add failed: ' + err.message);
+    }
+  };
+
+  const seedDatabase = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm('This will seed the database with initial data. Continue?')) return;
+    
+    try {
+      const initialFilms = getInitialFilms();
+      const initialMembers = getInitialMembers();
+      
+      for (const film of initialFilms) {
+        await setDoc(doc(db, 'films', film.id), film);
+      }
+      
+      for (const member of initialMembers) {
+        await setDoc(doc(db, 'members', member.id), member);
+      }
+      
+      await loadData();
+      alert('Database seeded successfully!');
+    } catch (err) {
+      alert('Seeding failed: ' + err.message);
+    }
   };
 
   const searchTMDB = async (title) => {
@@ -414,7 +535,7 @@ function App() {
           {pendingVotes.map(sub => (
             <div key={sub.id} className="mb-6 p-4 border rounded-lg" style={{ borderColor: '#31394d' }}>
               <div className="flex gap-4">
-                {sub.image && <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />}
+                {sub.image && <img src={sub.image} alt={sub.title} className="w-40 h-60 object-cover rounded" />}
                 <div className="flex-1">
                   <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>{sub.title}</h3>
                   <p className="text-gray-600 mb-2">Submitted by: {sub.submittedBy}</p>
@@ -487,7 +608,9 @@ function App() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-12">
               {films.filter(f => f.type === 'bmn').map(film => (
                 <div key={film.id} onClick={() => { setSelectedFilm(film); setPage('film'); }} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
-                  <img src={film.image} alt={film.title} className="w-full h-64 object-cover" />
+                  <div className="relative" style={{ paddingBottom: '150%' }}>
+                    <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+                  </div>
                   <div className="p-4">
                     <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>{film.title}</h3>
                     <p className="text-sm text-gray-600 text-center mb-2">{new Date(film.date).toLocaleDateString()}</p>
@@ -515,7 +638,9 @@ function App() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {films.filter(f => f.type === 'offsite-film').map(film => (
                 <div key={film.id} onClick={() => { setSelectedFilm(film); setPage('film'); }} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
-                  <img src={film.image} alt={film.title} className="w-full h-64 object-cover" />
+                  <div className="relative" style={{ paddingBottom: '150%' }}>
+                    <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+                  </div>
                   <div className="p-4">
                     <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>{film.title}</h3>
                     <p className="text-sm text-gray-600 text-center mb-2">{new Date(film.date).toLocaleDateString()}</p>
@@ -562,33 +687,71 @@ function App() {
 
         {page === 'profile' && selectedMember && (
           <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="flex gap-8 mb-8">
-              <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-full object-cover" />
-              <div className="flex-1">
-                <h2 className="text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
-                <p className="text-xl mb-4" style={{ color: '#009384' }}>{selectedMember.title}</p>
-                <p className="text-gray-700 mb-4">{selectedMember.bio}</p>
-                <div className="flex gap-2 flex-wrap">
-                  {selectedMember.emojis?.map((emoji, i) => <span key={i} className="text-3xl cursor-pointer" title={`Badge ${i + 1}`}>{emoji}</span>)}
+            {editingProfile && editingProfile.id === selectedMember.id ? (
+              <div className="space-y-4">
+                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Profile</h2>
+                <div>
+                  <label className="block mb-2 font-semibold">Profile Image</label>
+                  <img src={editingProfile.image} alt="Profile" className="w-32 h-32 rounded-full object-cover mb-2" />
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'members')} className="mb-2" />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold">Name</label>
+                  <input type="text" value={editingProfile.name} onChange={(e) => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold">Title</label>
+                  <input type="text" value={editingProfile.title} onChange={(e) => setEditingProfile({...editingProfile, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold">Bio</label>
+                  <textarea value={editingProfile.bio} onChange={(e) => setEditingProfile({...editingProfile, bio: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveProfile} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }} disabled={uploadingImage}>
+                    <Save size={16} className="inline mr-2" />{uploadingImage ? 'Uploading...' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditingProfile(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold">
+                    <X size={16} className="inline mr-2" />Cancel
+                  </button>
                 </div>
               </div>
-            </div>
-            <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Recent Reviews (Last 10)</h3>
-            <div className="space-y-4">
-              {buzzFeed.filter(item => item.memberId === selectedMember.id && item.type === 'review').slice(0, 10).map(review => (
-                <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold" style={{ color: '#31394d' }}>{review.filmTitle}</h4>
-                    <span className="text-sm text-gray-500">{review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}</span>
+            ) : (
+              <>
+                <div className="flex gap-8 mb-8">
+                  <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-full object-cover" />
+                  <div className="flex-1">
+                    <h2 className="text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
+                    <p className="text-xl mb-4" style={{ color: '#009384' }}>{selectedMember.title}</p>
+                    <p className="text-gray-700 mb-4">{selectedMember.bio}</p>
+                    <div className="flex gap-2 flex-wrap mb-4">
+                      {selectedMember.emojis?.map((emoji, i) => <span key={i} className="text-3xl cursor-pointer" title={`Badge ${i + 1}`}>{emoji}</span>)}
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => setEditingProfile(selectedMember)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#31394d' }}>
+                        <Edit size={16} className="inline mr-2" />Edit Profile
+                      </button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-4 mb-2">
-                    <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
-                    <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
-                  </div>
-                  <p className="text-gray-700">{review.text}</p>
                 </div>
-              ))}
-            </div>
+                <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Recent Reviews (Last 10)</h3>
+                <div className="space-y-4">
+                  {buzzFeed.filter(item => item.memberId === selectedMember.id && item.type === 'review').slice(0, 10).map(review => (
+                    <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-bold" style={{ color: '#31394d' }}>{review.filmTitle}</h4>
+                        <span className="text-sm text-gray-500">{review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-4 mb-2">
+                        <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
+                        <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                      </div>
+                      <p className="text-gray-700">{review.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -601,13 +764,18 @@ function App() {
                   {item.type === 'review' && (
                     <>
                       <div className="flex justify-between items-start mb-4">
-                        <div>
+                        <div className="flex-1">
                           <h3 className="text-xl font-bold" style={{ color: '#31394d' }}>{item.memberName} reviewed {item.filmTitle}</h3>
                           <p className="text-sm text-gray-500">{item.timestamp?.toDate ? new Date(item.timestamp.toDate()).toLocaleDateString() : ''}</p>
                         </div>
                         <div className="flex items-center gap-4">
                           <span className="text-2xl font-bold" style={{ color: '#009384' }}>{item.score}</span>
                           <span className="text-2xl">{item.thumbs === 'down' ? '👎' : item.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                          {isAdmin && (
+                            <button onClick={() => handleDeleteBuzzItem(item.id)} className="text-red-500 hover:text-red-700">
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       </div>
                       <p className="text-gray-700 mb-4">{item.text}</p>
@@ -630,7 +798,14 @@ function App() {
                         <div key={reply.id} className="ml-8 mt-4 p-4 bg-gray-50 rounded-lg">
                           <div className="flex justify-between items-start mb-2">
                             <span className="font-semibold" style={{ color: '#31394d' }}>{reply.memberName}</span>
-                            <span className="text-sm text-gray-500">{reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-500">{reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                              {isAdmin && (
+                                <button onClick={() => handleDeleteBuzzItem(reply.id)} className="text-red-500 hover:text-red-700">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-gray-700">{reply.text}</p>
                         </div>
@@ -659,7 +834,7 @@ function App() {
                 return (
                   <div key={sub.id} className="bg-white rounded-lg shadow-lg p-6">
                     <div className="flex gap-4">
-                      {sub.image && <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />}
+                      {sub.image && <img src={sub.image} alt={sub.title} className="w-40 h-60 object-cover rounded" />}
                       <div className="flex-1">
                         <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>{sub.title}</h3>
                         <p className="text-sm text-gray-600 mb-2">Submitted by: {sub.submittedBy}</p>
@@ -723,116 +898,243 @@ function App() {
 
         {page === 'film' && selectedFilm && (
           <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="grid md:grid-cols-2 gap-8 mb-8">
-              <div>
-                <img src={selectedFilm.image} alt={selectedFilm.title} className="w-full rounded-lg shadow-lg mb-4" />
-                {selectedFilm.bmnPoster && <img src={selectedFilm.bmnPoster} alt="BMN Poster" className="w-full rounded-lg shadow-lg" />}
-              </div>
-              <div>
-                <h2 className="text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
-                <p className="text-xl mb-4 text-gray-600">{selectedFilm.subtitle}</p>
-                <p className="text-gray-600 mb-4">{new Date(selectedFilm.date).toLocaleDateString()}</p>
-                <div className="flex gap-8 mb-6">
-                  <div className="text-center">
-                    <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
-                    <p className="text-2xl font-bold">{selectedFilm.rtScore}%</p>
-                    <p className="text-sm text-gray-500">Tomatometer</p>
-                  </div>
-                  {selectedFilm.popcornScore && (
-                    <div className="text-center">
-                      <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
-                      <p className="text-2xl font-bold">{selectedFilm.popcornScore}%</p>
-                      <p className="text-sm text-gray-500">Popcornmeter</p>
-                    </div>
-                  )}
-                  <div className="text-center">
-                    <div className="text-4xl mb-2">🎬</div>
-                    <p className="text-2xl font-bold" style={{ color: '#009384' }}>{selectedFilm.bmnScore}</p>
-                    <p className="text-sm text-gray-500">BMN Score</p>
-                  </div>
-                </div>
-                {selectedFilm.trailer && <div className="mb-4"><a href={selectedFilm.trailer} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Watch Trailer</a></div>}
-                {tmdbData && (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-bold mb-2" style={{ color: '#31394d' }}>Movie Info</h4>
-                    {tmdbData.overview && <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>}
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      {tmdbData.release_date && <div><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
-                      {tmdbData.runtime && <div><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
-                      {tmdbData.genres && tmdbData.genres.length > 0 && <div className="col-span-2"><span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}</div>}
-                      {tmdbData.budget && tmdbData.budget > 0 && <div><span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M</div>}
-                      {tmdbData.revenue && tmdbData.revenue > 0 && <div><span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M</div>}
-                    </div>
-                  </div>
-                )}
-                {searchingTmdb && !tmdbData && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center"><p className="text-sm text-gray-500">Loading movie info from TMDB...</p></div>}
-                {isAdmin && <button onClick={() => setEditingFilm(selectedFilm)} className="px-4 py-2 rounded-lg text-white font-semibold mb-4" style={{ backgroundColor: '#31394d' }}><Edit size={16} className="inline mr-2" />Edit Film</button>}
-              </div>
-            </div>
-            <div className="mb-8">
-              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
+            {editingFilm && editingFilm.id === selectedFilm.id ? (
               <div className="space-y-4">
+                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Film</h2>
                 <div>
-                  <label className="block mb-2 font-semibold">Score (0-100)</label>
-                  <input type="range" min="0" max="100" value={userVote.score} onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })} className="w-full" />
-                  <p className="text-center text-2xl font-bold mt-2" style={{ color: '#009384' }}>{userVote.score}</p>
+                  <label className="block mb-2 font-semibold">Title</label>
+                  <input type="text" value={editingFilm.title} onChange={(e) => setEditingFilm({...editingFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
                 <div>
-                  <label className="block mb-2 font-semibold">Rating</label>
-                  <div className="flex gap-4">
-                    {['neutral', 'down', 'double-down'].map(t => (
-                      <button key={t} onClick={() => setUserVote({ ...userVote, thumbs: t })} className={`px-6 py-2 rounded-lg ${userVote.thumbs === t ? 'ring-2' : ''}`} style={{ backgroundColor: userVote.thumbs === t ? '#009384' : '#e5e7eb', color: userVote.thumbs === t ? 'white' : 'black' }}>
-                        {t === 'neutral' ? '👍 Neutral' : t === 'down' ? '👎 Down' : '👎👎 Double Down'}
+                  <label className="block mb-2 font-semibold">RT Score</label>
+                  <input type="number" value={editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold">Popcornmeter Score</label>
+                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold">Trailer URL</label>
+                  <input type="url" value={editingFilm.trailer || ''} onChange={(e) => setEditingFilm({...editingFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveFilm} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>
+                    <Save size={16} className="inline mr-2" />Save
+                  </button>
+                  <button onClick={() => setEditingFilm(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold">
+                    <X size={16} className="inline mr-2" />Cancel
+                  </button>
+                  <button onClick={() => handleDeleteFilm(editingFilm.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600">
+                    <Trash2 size={16} className="inline mr-2" />Delete Film
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid md:grid-cols-2 gap-8 mb-8">
+                  <div>
+                    <div className="relative mb-4" style={{ paddingBottom: '150%' }}>
+                      <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
+                    </div>
+                    {selectedFilm.bmnPoster && (
+                      <div className="relative" style={{ paddingBottom: '150%' }}>
+                        <img src={selectedFilm.bmnPoster} alt="BMN Poster" className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
+                    <p className="text-xl mb-4 text-gray-600">{selectedFilm.subtitle}</p>
+                    <p className="text-gray-600 mb-4">{new Date(selectedFilm.date).toLocaleDateString()}</p>
+                    <div className="flex gap-8 mb-6">
+                      <div className="text-center">
+                        <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{selectedFilm.rtScore}%</p>
+                        <p className="text-sm text-gray-500">Tomatometer</p>
+                      </div>
+                      {selectedFilm.popcornScore && (
+                        <div className="text-center">
+                          <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
+                          <p className="text-2xl font-bold">{selectedFilm.popcornScore}%</p>
+                          <p className="text-sm text-gray-500">Popcornmeter</p>
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <div className="text-4xl mb-2">🎬</div>
+                        <p className="text-2xl font-bold" style={{ color: '#009384' }}>{selectedFilm.bmnScore}</p>
+                        <p className="text-sm text-gray-500">BMN Score</p>
+                      </div>
+                    </div>
+                    {selectedFilm.trailer && <div className="mb-4"><a href={selectedFilm.trailer} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Watch Trailer</a></div>}
+                    {tmdbData && (
+                      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                        <h4 className="font-bold mb-2" style={{ color: '#31394d' }}>Movie Info</h4>
+                        {tmdbData.overview && <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>}
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          {tmdbData.release_date && <div><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
+                          {tmdbData.runtime && <div><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
+                          {tmdbData.genres && tmdbData.genres.length > 0 && <div className="col-span-2"><span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}</div>}
+                          {tmdbData.budget && tmdbData.budget > 0 && <div><span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M</div>}
+                          {tmdbData.revenue && tmdbData.revenue > 0 && <div><span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M</div>}
+                        </div>
+                      </div>
+                    )}
+                    {searchingTmdb && !tmdbData && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center"><p className="text-sm text-gray-500">Loading movie info from TMDB...</p></div>}
+                    {isAdmin && (
+                      <button onClick={() => setEditingFilm(selectedFilm)} className="px-4 py-2 rounded-lg text-white font-semibold mb-4" style={{ backgroundColor: '#31394d' }}>
+                        <Edit size={16} className="inline mr-2" />Edit Film
                       </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mb-8">
+                  <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block mb-2 font-semibold">Score (0-100)</label>
+                      <input type="range" min="0" max="100" value={userVote.score} onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })} className="w-full" />
+                      <p className="text-center text-2xl font-bold mt-2" style={{ color: '#009384' }}>{userVote.score}</p>
+                    </div>
+                    <div>
+                      <label className="block mb-2 font-semibold">Rating</label>
+                      <div className="flex gap-4">
+                        {['neutral', 'down', 'double-down'].map(t => (
+                          <button key={t} onClick={() => setUserVote({ ...userVote, thumbs: t })} className={`px-6 py-2 rounded-lg ${userVote.thumbs === t ? 'ring-2' : ''}`} style={{ backgroundColor: userVote.thumbs === t ? '#009384' : '#e5e7eb', color: userVote.thumbs === t ? 'white' : 'black' }}>
+                            {t === 'neutral' ? '👍 Neutral' : t === 'down' ? '👎 Down' : '👎👎 Double Down'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block mb-2 font-semibold">Review (Optional)</label>
+                      <textarea value={userVote.text} onChange={(e) => setUserVote({ ...userVote, text: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" placeholder="Share your thoughts..." />
+                    </div>
+                    <button onClick={() => handleVoteSubmit(selectedFilm.id)} className="w-full py-3 rounded-lg text-white font-semibold text-lg" style={{ backgroundColor: '#009384' }}>Submit Vote</button>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>All Reviews</h3>
+                  <div className="space-y-4">
+                    {buzzFeed.filter(item => item.filmId === selectedFilm.id && item.type === 'review').map(review => (
+                      <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-bold" style={{ color: '#31394d' }}>{review.memberName}</h4>
+                          <div className="flex items-center gap-4">
+                            <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
+                            <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                            {isAdmin && (
+                              <button onClick={() => handleDeleteBuzzItem(review.id)} className="text-red-500 hover:text-red-700">
+                                <Trash2 size={18} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-gray-700 mb-2">{review.text}</p>
+                        <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
+                          <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
+                          <span>{(review.likes || []).length}</span>
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="block mb-2 font-semibold">Review (Optional)</label>
-                  <textarea value={userVote.text} onChange={(e) => setUserVote({ ...userVote, text: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" placeholder="Share your thoughts..." />
-                </div>
-                <button onClick={() => handleVoteSubmit(selectedFilm.id)} className="w-full py-3 rounded-lg text-white font-semibold text-lg" style={{ backgroundColor: '#009384' }}>Submit Vote</button>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>All Reviews</h3>
-              <div className="space-y-4">
-                {buzzFeed.filter(item => item.filmId === selectedFilm.id && item.type === 'review').map(review => (
-                  <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold" style={{ color: '#31394d' }}>{review.memberName}</h4>
-                      <div className="flex items-center gap-4">
-                        <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
-                        <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
-                      </div>
-                    </div>
-                    <p className="text-gray-700 mb-2">{review.text}</p>
-                    <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
-                      <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
-                      <span>{(review.likes || []).length}</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
 
         {page === 'admin' && isAdmin && (
           <div className="bg-white rounded-lg shadow-lg p-8">
             <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div className="p-4 bg-gray-50 rounded">
-                <h3 className="font-bold mb-2">Database Status</h3>
-                <p>Films: {films.length}</p>
-                <p>Members: {members.length}</p>
-                <p>Submissions: {submissions.length}</p>
-                <p>Buzz Items: {buzzFeed.length}</p>
+                <h3 className="text-xl font-bold mb-4" style={{ color: '#31394d' }}>Database Status</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="font-semibold">Films:</p>
+                    <p className="text-2xl" style={{ color: '#009384' }}>{films.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Members:</p>
+                    <p className="text-2xl" style={{ color: '#009384' }}>{members.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Submissions:</p>
+                    <p className="text-2xl" style={{ color: '#009384' }}>{submissions.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Buzz Items:</p>
+                    <p className="text-2xl" style={{ color: '#009384' }}>{buzzFeed.length}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 rounded">
+                <h3 className="text-xl font-bold mb-4" style={{ color: '#31394d' }}>Admin Actions</h3>
+                <button onClick={seedDatabase} className="px-6 py-3 rounded-lg text-white font-semibold" style={{ backgroundColor: '#31394d' }}>
+                  Seed Database with Initial Data
+                </button>
+                <p className="text-sm text-gray-600 mt-2">This will add all initial films and members to Firebase.</p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded">
+                <h3 className="text-xl font-bold mb-4" style={{ color: '#31394d' }}>Email to Member ID Mapping</h3>
+                <div className="space-y-2 text-sm">
+                  {Object.entries(EMAIL_TO_MEMBER_ID).map(([email, id]) => (
+                    <div key={email} className="flex justify-between">
+                      <span>{email}</span>
+                      <span className="font-mono" style={{ color: '#009384' }}>{id}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {showAddFilm && isAdmin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
+            <form onSubmit={handleAddFilm} className="space-y-4">
+              <div>
+                <label className="block mb-2 font-semibold">Title *</label>
+                <input type="text" value={newFilm.title} onChange={(e) => setNewFilm({...newFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">Subtitle</label>
+                <input type="text" value={newFilm.subtitle} onChange={(e) => setNewFilm({...newFilm, subtitle: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">Movie Poster URL *</label>
+                <input type="url" value={newFilm.image} onChange={(e) => setNewFilm({...newFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">RT Score *</label>
+                <input type="number" min="0" max="100" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">Popcornmeter Score</label>
+                <input type="number" min="0" max="100" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">Date *</label>
+                <input type="date" value={newFilm.date} onChange={(e) => setNewFilm({...newFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold">Type</label>
+                <select value={newFilm.type} onChange={(e) => setNewFilm({...newFilm, type: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }}>
+                  <option value="bmn">BMN Screening</option>
+                  <option value="offsite-film">Offsite Film</option>
+                </select>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>Add Film</button>
+                <button type="button" onClick={() => setShowAddFilm(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showSubmitMovie && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -841,19 +1143,19 @@ function App() {
             <form onSubmit={handleSubmitMovie} className="space-y-4">
               <div>
                 <label className="block mb-2 font-semibold">Title *</label>
-                <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({ ...newSubmission, title: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({...newSubmission, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">Movie Poster URL *</label>
-                <input type="url" value={newSubmission.image} onChange={(e) => setNewSubmission({ ...newSubmission, image: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                <input type="url" value={newSubmission.image} onChange={(e) => setNewSubmission({...newSubmission, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">YouTube Trailer Link</label>
-                <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({ ...newSubmission, youtubeLink: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({...newSubmission, youtubeLink: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">Description</label>
-                <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({ ...newSubmission, description: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
+                <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({...newSubmission, description: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
               </div>
               <div className="flex gap-4">
                 <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>Submit</button>
