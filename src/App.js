@@ -1,13 +1,4 @@
-{sub.youtubeLink && (
-
-href={sub.youtubeLink}
-target="_blank"
-rel="noopener noreferrer"
-className="text-blue-500 hover:underline mb-4 block"{sub.youtubeLink && (
-  <a href={sub.youtubeLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mb-4 block">
-    Watch Trailer
-  </a>
-)}import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, X, Plus, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
@@ -358,7 +349,7 @@ function App() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
-                style={{ borderColor: '#31394d', focusRing: '#009384' }}
+                style={{ borderColor: '#31394d' }}
                 required
               />
               <input
