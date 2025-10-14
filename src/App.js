@@ -50,14 +50,12 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [forgotPassword, setForgotPassword] = useState(false);
-  const [editingFilm, setEditingFilm] = useState(null);
-  const [editingProfile, setEditingProfile] = useState(null);
   const [newFilm, setNewFilm] = useState({
     title: '', subtitle: '', image: '', bmnPoster: '', rtScore: '', popcornScore: '',
-    bmnScore: 50, date: '', emoji: '🎬', type: 'bmn', trailer: '', tmdbId: ''
+    bmnScore: 50, date: '', emoji: '🎬', type: 'bmn', trailer: ''
   });
   const [newSubmission, setNewSubmission] = useState({
-    title: '', image: '', youtubeLink: '', description: '', submittedBy: ''
+    title: '', image: '', youtubeLink: '', description: ''
   });
   const [userVote, setUserVote] = useState({ score: 50, text: '', thumbs: 'neutral' });
   const [replyText, setReplyText] = useState('');
@@ -241,12 +239,9 @@ function App() {
 
   const handleVoteOnSubmission = async (submissionId, vote) => {
     if (!userProfile) return;
-
-    const subRef = doc(db, 'submissions', submissionId);
-    await updateDoc(subRef, {
+    await updateDoc(doc(db, 'submissions', submissionId), {
       [`votes.${userProfile.id}`]: vote
     });
-
     await loadData();
   };
 
@@ -264,8 +259,7 @@ function App() {
       );
       const data = await response.json();
       if (data.results && data.results.length > 0) {
-        const movieId = data.results[0].id;
-        await fetchTMDBDetails(movieId);
+        await fetchTMDBDetails(data.results[0].id);
       }
     } catch (err) {
       console.error('TMDB search error:', err);
@@ -292,17 +286,15 @@ function App() {
   };
 
   const getRTIcon = (score) => {
-    if (score >= 50) {
-      return "https://www.clipartmax.com/png/small/50-503753_rotten-tomatoes-logo-png.png";
-    }
-    return "https://www.clipartmax.com/png/small/8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png";
+    return score >= 50 
+      ? "https://www.clipartmax.com/png/small/50-503753_rotten-tomatoes-logo-png.png"
+      : "https://www.clipartmax.com/png/small/8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png";
   };
 
   const getPopcornIcon = (score) => {
-    if (score >= 50) {
-      return "https://www.clipartmax.com/png/small/158-1588548_open-popcorn-icon-rotten-tomatoes.png";
-    }
-    return "https://www.clipartmax.com/png/small/158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png";
+    return score >= 50
+      ? "https://www.clipartmax.com/png/small/158-1588548_open-popcorn-icon-rotten-tomatoes.png"
+      : "https://www.clipartmax.com/png/small/158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png";
   };
 
   if (loading) {
@@ -422,9 +414,7 @@ function App() {
           {pendingVotes.map(sub => (
             <div key={sub.id} className="mb-6 p-4 border rounded-lg" style={{ borderColor: '#31394d' }}>
               <div className="flex gap-4">
-                {sub.image && (
-                  <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />
-                )}
+                {sub.image && <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />}
                 <div className="flex-1">
                   <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>{sub.title}</h3>
                   <p className="text-gray-600 mb-2">Submitted by: {sub.submittedBy}</p>
@@ -470,46 +460,15 @@ function App() {
               Bad Movie Night
             </h1>
           </div>
-
           <nav className="hidden md:flex items-center gap-6">
-            <button
-              onClick={() => setPage('home')}
-              className="text-white hover:opacity-80"
-              style={{ fontWeight: page === 'home' ? 'bold' : 'normal' }}
-            >
-              Home
-            </button>
-            <button onClick={() => setPage('leaderboard')} className="text-white hover:opacity-80">
-              Leaderboard
-            </button>
-            <button onClick={() => setPage('members')} className="text-white hover:opacity-80">
-              Members
-            </button>
-            <button onClick={() => setPage('buzz')} className="text-white hover:opacity-80">
-              The Buzz
-            </button>
-            <button onClick={() => setPage('upnext')} className="text-white hover:opacity-80">
-              Up Next
-            </button>
-            <button
-              onClick={() => { setPage('profile'); setSelectedMember(userProfile); }}
-              className="text-white hover:opacity-80"
-            >
-              Profile
-            </button>
-            {isAdmin && (
-              <>
-                <button onClick={() => setPage('requests')} className="text-white hover:opacity-80">
-                  Requests
-                </button>
-                <button onClick={() => setPage('admin')} className="text-white hover:opacity-80">
-                  Admin
-                </button>
-              </>
-            )}
-            <button onClick={handleLogout} className="text-white hover:opacity-80">
-              <LogOut size={20} />
-            </button>
+            <button onClick={() => setPage('home')} className="text-white hover:opacity-80" style={{ fontWeight: page === 'home' ? 'bold' : 'normal' }}>Home</button>
+            <button onClick={() => setPage('leaderboard')} className="text-white hover:opacity-80">Leaderboard</button>
+            <button onClick={() => setPage('members')} className="text-white hover:opacity-80">Members</button>
+            <button onClick={() => setPage('buzz')} className="text-white hover:opacity-80">The Buzz</button>
+            <button onClick={() => setPage('upnext')} className="text-white hover:opacity-80">Up Next</button>
+            <button onClick={() => { setPage('profile'); setSelectedMember(userProfile); }} className="text-white hover:opacity-80">Profile</button>
+            {isAdmin && <button onClick={() => setPage('admin')} className="text-white hover:opacity-80">Admin</button>}
+            <button onClick={handleLogout} className="text-white hover:opacity-80"><LogOut size={20} /></button>
           </nav>
         </div>
       </header>
@@ -518,36 +477,20 @@ function App() {
         {page === 'home' && (
           <div>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                BMN Screenings
-              </h2>
+              <h2 className="text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>BMN Screenings</h2>
               {isAdmin && (
-                <button
-                  onClick={() => setShowAddFilm(true)}
-                  className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2"
-                  style={{ backgroundColor: '#009384' }}
-                >
-                  <Plus size={20} />
-                  Add Film
+                <button onClick={() => setShowAddFilm(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ backgroundColor: '#009384' }}>
+                  <Plus size={20} />Add Film
                 </button>
               )}
             </div>
-
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-12">
               {films.filter(f => f.type === 'bmn').map(film => (
-                <div
-                  key={film.id}
-                  onClick={() => { setSelectedFilm(film); setPage('film'); }}
-                  className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden"
-                >
+                <div key={film.id} onClick={() => { setSelectedFilm(film); setPage('film'); }} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
                   <img src={film.image} alt={film.title} className="w-full h-64 object-cover" />
                   <div className="p-4">
-                    <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>
-                      {film.title}
-                    </h3>
-                    <p className="text-sm text-gray-600 text-center mb-2">
-                      {new Date(film.date).toLocaleDateString()}
-                    </p>
+                    <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>{film.title}</h3>
+                    <p className="text-sm text-gray-600 text-center mb-2">{new Date(film.date).toLocaleDateString()}</p>
                     <div className="flex justify-around items-center mt-2">
                       <div className="text-center">
                         <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
@@ -561,34 +504,21 @@ function App() {
                       )}
                       <div className="text-center">
                         <p className="text-xs text-gray-500">BMN</p>
-                        <p className="text-sm font-semibold" style={{ color: '#009384' }}>
-                          {film.bmnScore}
-                        </p>
+                        <p className="text-sm font-semibold" style={{ color: '#009384' }}>{film.bmnScore}</p>
                       </div>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-
-            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Offsite Films
-            </h2>
+            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Offsite Films</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {films.filter(f => f.type === 'offsite-film').map(film => (
-                <div
-                  key={film.id}
-                  onClick={() => { setSelectedFilm(film); setPage('film'); }}
-                  className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden"
-                >
+                <div key={film.id} onClick={() => { setSelectedFilm(film); setPage('film'); }} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
                   <img src={film.image} alt={film.title} className="w-full h-64 object-cover" />
                   <div className="p-4">
-                    <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>
-                      {film.title}
-                    </h3>
-                    <p className="text-sm text-gray-600 text-center mb-2">
-                      {new Date(film.date).toLocaleDateString()}
-                    </p>
+                    <h3 className="text-lg font-bold text-center mb-2" style={{ color: '#31394d' }}>{film.title}</h3>
+                    <p className="text-sm text-gray-600 text-center mb-2">{new Date(film.date).toLocaleDateString()}</p>
                     <div className="flex justify-around items-center mt-2">
                       <div className="text-center">
                         <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
@@ -602,9 +532,7 @@ function App() {
                       )}
                       <div className="text-center">
                         <p className="text-xs text-gray-500">BMN</p>
-                        <p className="text-sm font-semibold" style={{ color: '#009384' }}>
-                          {film.bmnScore}
-                        </p>
+                        <p className="text-sm font-semibold" style={{ color: '#009384' }}>{film.bmnScore}</p>
                       </div>
                     </div>
                   </div>
@@ -616,23 +544,15 @@ function App() {
 
         {page === 'members' && (
           <div>
-            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Members
-            </h2>
+            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Members</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {members.map(member => (
-                <div
-                  key={member.id}
-                  onClick={() => { setSelectedMember(member); setPage('profile'); }}
-                  className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow text-center"
-                >
+                <div key={member.id} onClick={() => { setSelectedMember(member); setPage('profile'); }} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow text-center">
                   <img src={member.image} alt={member.name} className="w-32 h-32 rounded-full mx-auto mb-4 object-cover" />
                   <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>{member.name}</h3>
                   <p className="text-sm mb-2" style={{ color: '#009384' }}>{member.title}</p>
                   <div className="flex justify-center gap-1 flex-wrap">
-                    {member.emojis?.slice(0, 10).map((emoji, i) => (
-                      <span key={i} className="text-2xl">{emoji}</span>
-                    ))}
+                    {member.emojis?.slice(0, 10).map((emoji, i) => <span key={i} className="text-2xl">{emoji}</span>)}
                   </div>
                 </div>
               ))}
@@ -645,56 +565,36 @@ function App() {
             <div className="flex gap-8 mb-8">
               <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-full object-cover" />
               <div className="flex-1">
-                <h2 className="text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                  {selectedMember.name}
-                </h2>
+                <h2 className="text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
                 <p className="text-xl mb-4" style={{ color: '#009384' }}>{selectedMember.title}</p>
                 <p className="text-gray-700 mb-4">{selectedMember.bio}</p>
                 <div className="flex gap-2 flex-wrap">
-                  {selectedMember.emojis?.map((emoji, i) => (
-                    <span key={i} className="text-3xl cursor-pointer" title={`Badge ${i + 1}`}>
-                      {emoji}
-                    </span>
-                  ))}
+                  {selectedMember.emojis?.map((emoji, i) => <span key={i} className="text-3xl cursor-pointer" title={`Badge ${i + 1}`}>{emoji}</span>)}
                 </div>
               </div>
             </div>
-
-            <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Recent Reviews (Last 10)
-            </h3>
+            <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Recent Reviews (Last 10)</h3>
             <div className="space-y-4">
-              {buzzFeed
-                .filter(item => item.memberId === selectedMember.id && item.type === 'review')
-                .slice(0, 10)
-                .map(review => (
-                  <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold" style={{ color: '#31394d' }}>{review.filmTitle}</h4>
-                      <span className="text-sm text-gray-500">
-                        {review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 mb-2">
-                      <span className="text-2xl font-bold" style={{ color: '#009384' }}>
-                        {review.score}
-                      </span>
-                      <span className="text-2xl">
-                        {review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}
-                      </span>
-                    </div>
-                    <p className="text-gray-700">{review.text}</p>
+              {buzzFeed.filter(item => item.memberId === selectedMember.id && item.type === 'review').slice(0, 10).map(review => (
+                <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-bold" style={{ color: '#31394d' }}>{review.filmTitle}</h4>
+                    <span className="text-sm text-gray-500">{review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}</span>
                   </div>
-                ))}
+                  <div className="flex items-center gap-4 mb-2">
+                    <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
+                    <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                  </div>
+                  <p className="text-gray-700">{review.text}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         {page === 'buzz' && (
           <div>
-            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              The Buzz
-            </h2>
+            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>The Buzz</h2>
             <div className="space-y-4">
               {buzzFeed.map(item => (
                 <div key={item.id} className="bg-white rounded-lg shadow-lg p-6">
@@ -702,78 +602,39 @@ function App() {
                     <>
                       <div className="flex justify-between items-start mb-4">
                         <div>
-                          <h3 className="text-xl font-bold" style={{ color: '#31394d' }}>
-                            {item.memberName} reviewed {item.filmTitle}
-                          </h3>
-                          <p className="text-sm text-gray-500">
-                            {item.timestamp?.toDate ? new Date(item.timestamp.toDate()).toLocaleDateString() : ''}
-                          </p>
+                          <h3 className="text-xl font-bold" style={{ color: '#31394d' }}>{item.memberName} reviewed {item.filmTitle}</h3>
+                          <p className="text-sm text-gray-500">{item.timestamp?.toDate ? new Date(item.timestamp.toDate()).toLocaleDateString() : ''}</p>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="text-2xl font-bold" style={{ color: '#009384' }}>
-                            {item.score}
-                          </span>
-                          <span className="text-2xl">
-                            {item.thumbs === 'down' ? '👎' : item.thumbs === 'double-down' ? '👎👎' : '👍'}
-                          </span>
+                          <span className="text-2xl font-bold" style={{ color: '#009384' }}>{item.score}</span>
+                          <span className="text-2xl">{item.thumbs === 'down' ? '👎' : item.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
                         </div>
                       </div>
                       <p className="text-gray-700 mb-4">{item.text}</p>
                       <div className="flex gap-4">
-                        <button
-                          onClick={() => handleLikeBuzzItem(item.id, item.likes || [])}
-                          className="flex items-center gap-2 text-gray-600 hover:text-red-500"
-                        >
-                          <Heart
-                            size={20}
-                            fill={(item.likes || []).includes(userProfile?.id) ? 'red' : 'none'}
-                            color={(item.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'}
-                          />
+                        <button onClick={() => handleLikeBuzzItem(item.id, item.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
+                          <Heart size={20} fill={(item.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(item.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
                           <span>{(item.likes || []).length}</span>
                         </button>
-                        <button
-                          onClick={() => setReplyingTo(replyingTo === item.id ? null : item.id)}
-                          className="flex items-center gap-2 text-gray-600 hover:opacity-70"
-                          style={{ color: '#009384' }}
-                        >
-                          <MessageCircle size={20} />
-                          Reply
+                        <button onClick={() => setReplyingTo(replyingTo === item.id ? null : item.id)} className="flex items-center gap-2 text-gray-600 hover:opacity-70" style={{ color: '#009384' }}>
+                          <MessageCircle size={20} />Reply
                         </button>
                       </div>
                       {replyingTo === item.id && (
                         <div className="mt-4 flex gap-2">
-                          <input
-                            type="text"
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            placeholder="Write a reply..."
-                            className="flex-1 px-4 py-2 border rounded-lg"
-                            style={{ borderColor: '#31394d' }}
-                          />
-                          <button
-                            onClick={() => handleReplyToBuzz(item.id)}
-                            className="px-4 py-2 rounded-lg text-white font-semibold"
-                            style={{ backgroundColor: '#009384' }}
-                          >
-                            Send
-                          </button>
+                          <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write a reply..." className="flex-1 px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                          <button onClick={() => handleReplyToBuzz(item.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>Send</button>
                         </div>
                       )}
-                      {buzzFeed
-                        .filter(reply => reply.type === 'reply' && reply.replyTo === item.id)
-                        .map(reply => (
-                          <div key={reply.id} className="ml-8 mt-4 p-4 bg-gray-50 rounded-lg">
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="font-semibold" style={{ color: '#31394d' }}>
-                                {reply.memberName}
-                              </span>
-                              <span className="text-sm text-gray-500">
-                                {reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}
-                              </span>
-                            </div>
-                            <p className="text-gray-700">{reply.text}</p>
+                      {buzzFeed.filter(reply => reply.type === 'reply' && reply.replyTo === item.id).map(reply => (
+                        <div key={reply.id} className="ml-8 mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-semibold" style={{ color: '#31394d' }}>{reply.memberName}</span>
+                            <span className="text-sm text-gray-500">{reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}</span>
                           </div>
-                        ))}
+                          <p className="text-gray-700">{reply.text}</p>
+                        </div>
+                      ))}
                     </>
                   )}
                 </div>
@@ -785,77 +646,38 @@ function App() {
         {page === 'upnext' && (
           <div>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                Up Next
-              </h2>
-              <button
-                onClick={() => setShowSubmitMovie(true)}
-                className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2"
-                style={{ backgroundColor: '#009384' }}
-              >
-                <Plus size={20} />
-                Submit Movie
+              <h2 className="text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Up Next</h2>
+              <button onClick={() => setShowSubmitMovie(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ backgroundColor: '#009384' }}>
+                <Plus size={20} />Submit Movie
               </button>
             </div>
-
             <div className="grid md:grid-cols-2 gap-6">
               {submissions.map(sub => {
                 const yesVotes = Object.values(sub.votes || {}).filter(v => v === 'yes').length;
                 const noVotes = Object.values(sub.votes || {}).filter(v => v === 'no').length;
                 const totalVotes = yesVotes + noVotes;
-                
                 return (
                   <div key={sub.id} className="bg-white rounded-lg shadow-lg p-6">
                     <div className="flex gap-4">
-                      {sub.image && (
-                        <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />
-                      )}
+                      {sub.image && <img src={sub.image} alt={sub.title} className="w-32 h-48 object-cover rounded" />}
                       <div className="flex-1">
-                        <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>
-                          {sub.title}
-                        </h3>
+                        <h3 className="text-xl font-bold mb-2" style={{ color: '#31394d' }}>{sub.title}</h3>
                         <p className="text-sm text-gray-600 mb-2">Submitted by: {sub.submittedBy}</p>
                         {sub.description && <p className="text-gray-700 mb-2">{sub.description}</p>}
-                        {sub.youtubeLink && (
-                          
-                            href={sub.youtubeLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 hover:underline mb-2 block"
-                          >
-                            Watch Trailer
-                          </a>
-                        )}
+                        {sub.youtubeLink && <a href={sub.youtubeLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mb-2 block">Watch Trailer</a>}
                         <div className="mt-4">
                           <div className="flex justify-between text-sm mb-2">
                             <span style={{ color: '#009384' }}>👍 Yes: {yesVotes}</span>
                             <span className="text-red-500">👎 No: {noVotes}</span>
                           </div>
                           <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className="h-2 rounded-full"
-                              style={{
-                                width: `${totalVotes > 0 ? (yesVotes / totalVotes) * 100 : 0}%`,
-                                backgroundColor: '#009384'
-                              }}
-                            />
+                            <div className="h-2 rounded-full" style={{ width: `${totalVotes > 0 ? (yesVotes / totalVotes) * 100 : 0}%`, backgroundColor: '#009384' }} />
                           </div>
                         </div>
                         {!sub.votes?.[userProfile?.id] && (
                           <div className="flex gap-2 mt-4">
-                            <button
-                              onClick={() => handleVoteOnSubmission(sub.id, 'yes')}
-                              className="flex-1 px-4 py-2 rounded-lg text-white font-semibold"
-                              style={{ backgroundColor: '#009384' }}
-                            >
-                              Yes
-                            </button>
-                            <button
-                              onClick={() => handleVoteOnSubmission(sub.id, 'no')}
-                              className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600"
-                            >
-                              No
-                            </button>
+                            <button onClick={() => handleVoteOnSubmission(sub.id, 'yes')} className="flex-1 px-4 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>Yes</button>
+                            <button onClick={() => handleVoteOnSubmission(sub.id, 'no')} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600">No</button>
                           </div>
                         )}
                       </div>
@@ -869,54 +691,31 @@ function App() {
 
         {page === 'leaderboard' && (
           <div>
-            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Leaderboards
-            </h2>
+            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Leaderboards</h2>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-2xl mb-4 font-bold" style={{ color: '#009384' }}>
-                  🏅 Most Badges
-                </h3>
-                {members
-                  .sort((a, b) => (b.emojis?.length || 0) - (a.emojis?.length || 0))
-                  .map((member, i) => (
-                    <div key={member.id} className="flex justify-between items-center py-2 border-b">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl font-bold" style={{ color: '#31394d' }}>
-                          #{i + 1}
-                        </span>
-                        <span>{member.name}</span>
-                      </div>
-                      <span className="font-bold" style={{ color: '#009384' }}>
-                        {member.emojis?.length || 0}
-                      </span>
+                <h3 className="text-2xl mb-4 font-bold" style={{ color: '#009384' }}>🏅 Most Badges</h3>
+                {members.sort((a, b) => (b.emojis?.length || 0) - (a.emojis?.length || 0)).map((member, i) => (
+                  <div key={member.id} className="flex justify-between items-center py-2 border-b">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl font-bold" style={{ color: '#31394d' }}>#{i + 1}</span>
+                      <span>{member.name}</span>
                     </div>
-                  ))}
+                    <span className="font-bold" style={{ color: '#009384' }}>{member.emojis?.length || 0}</span>
+                  </div>
+                ))}
               </div>
-              
               <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-2xl mb-4 font-bold" style={{ color: '#009384' }}>
-                  📝 Most Reviews
-                </h3>
-                {members
-                  .map(member => ({
-                    ...member,
-                    reviewCount: buzzFeed.filter(item => item.memberId === member.id && item.type === 'review').length
-                  }))
-                  .sort((a, b) => b.reviewCount - a.reviewCount)
-                  .map((member, i) => (
-                    <div key={member.id} className="flex justify-between items-center py-2 border-b">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl font-bold" style={{ color: '#31394d' }}>
-                          #{i + 1}
-                        </span>
-                        <span>{member.name}</span>
-                      </div>
-                      <span className="font-bold" style={{ color: '#009384' }}>
-                        {member.reviewCount}
-                      </span>
+                <h3 className="text-2xl mb-4 font-bold" style={{ color: '#009384' }}>📝 Most Reviews</h3>
+                {members.map(member => ({ ...member, reviewCount: buzzFeed.filter(item => item.memberId === member.id && item.type === 'review').length })).sort((a, b) => b.reviewCount - a.reviewCount).map((member, i) => (
+                  <div key={member.id} className="flex justify-between items-center py-2 border-b">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl font-bold" style={{ color: '#31394d' }}>#{i + 1}</span>
+                      <span>{member.name}</span>
                     </div>
-                  ))}
+                    <span className="font-bold" style={{ color: '#009384' }}>{member.reviewCount}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -927,17 +726,12 @@ function App() {
             <div className="grid md:grid-cols-2 gap-8 mb-8">
               <div>
                 <img src={selectedFilm.image} alt={selectedFilm.title} className="w-full rounded-lg shadow-lg mb-4" />
-                {selectedFilm.bmnPoster && (
-                  <img src={selectedFilm.bmnPoster} alt="BMN Poster" className="w-full rounded-lg shadow-lg" />
-                )}
+                {selectedFilm.bmnPoster && <img src={selectedFilm.bmnPoster} alt="BMN Poster" className="w-full rounded-lg shadow-lg" />}
               </div>
               <div>
-                <h2 className="text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                  {selectedFilm.title}
-                </h2>
+                <h2 className="text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
                 <p className="text-xl mb-4 text-gray-600">{selectedFilm.subtitle}</p>
                 <p className="text-gray-600 mb-4">{new Date(selectedFilm.date).toLocaleDateString()}</p>
-                
                 <div className="flex gap-8 mb-6">
                   <div className="text-center">
                     <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
@@ -953,192 +747,72 @@ function App() {
                   )}
                   <div className="text-center">
                     <div className="text-4xl mb-2">🎬</div>
-                    <p className="text-2xl font-bold" style={{ color: '#009384' }}>
-                      {selectedFilm.bmnScore}
-                    </p>
+                    <p className="text-2xl font-bold" style={{ color: '#009384' }}>{selectedFilm.bmnScore}</p>
                     <p className="text-sm text-gray-500">BMN Score</p>
                   </div>
                 </div>
-
-                {selectedFilm.trailer && (
-                  <div className="mb-4">
-                    
-                      href={selectedFilm.trailer}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:underline"
-                    >
-                      Watch Trailer
-                    </a>
-                  </div>
-                )}
-
+                {selectedFilm.trailer && <div className="mb-4"><a href={selectedFilm.trailer} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Watch Trailer</a></div>}
                 {tmdbData && (
                   <div className="mb-6 p-4 bg-gray-50 rounded-lg">
                     <h4 className="font-bold mb-2" style={{ color: '#31394d' }}>Movie Info</h4>
-                    {tmdbData.overview && (
-                      <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>
-                    )}
+                    {tmdbData.overview && <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>}
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      {tmdbData.release_date && (
-                        <div>
-                          <span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}
-                        </div>
-                      )}
-                      {tmdbData.runtime && (
-                        <div>
-                          <span className="font-semibold">Runtime:</span> {tmdbData.runtime} min
-                        </div>
-                      )}
-                      {tmdbData.genres && tmdbData.genres.length > 0 && (
-                        <div className="col-span-2">
-                          <span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}
-                        </div>
-                      )}
-                      {tmdbData.budget && tmdbData.budget > 0 && (
-                        <div>
-                          <span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M
-                        </div>
-                      )}
-                      {tmdbData.revenue && tmdbData.revenue > 0 && (
-                        <div>
-                          <span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M
-                        </div>
-                      )}
+                      {tmdbData.release_date && <div><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
+                      {tmdbData.runtime && <div><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
+                      {tmdbData.genres && tmdbData.genres.length > 0 && <div className="col-span-2"><span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}</div>}
+                      {tmdbData.budget && tmdbData.budget > 0 && <div><span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M</div>}
+                      {tmdbData.revenue && tmdbData.revenue > 0 && <div><span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M</div>}
                     </div>
                   </div>
                 )}
-                
-                {searchingTmdb && !tmdbData && (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center">
-                    <p className="text-sm text-gray-500">Loading movie info from TMDB...</p>
-                  </div>
-                )}
-
-                {isAdmin && (
-                  <button
-                    onClick={() => setEditingFilm(selectedFilm)}
-                    className="px-4 py-2 rounded-lg text-white font-semibold mb-4"
-                    style={{ backgroundColor: '#31394d' }}
-                  >
-                    <Edit size={16} className="inline mr-2" />
-                    Edit Film
-                  </button>
-                )}
+                {searchingTmdb && !tmdbData && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center"><p className="text-sm text-gray-500">Loading movie info from TMDB...</p></div>}
+                {isAdmin && <button onClick={() => setEditingFilm(selectedFilm)} className="px-4 py-2 rounded-lg text-white font-semibold mb-4" style={{ backgroundColor: '#31394d' }}><Edit size={16} className="inline mr-2" />Edit Film</button>}
               </div>
             </div>
-
             <div className="mb-8">
-              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                Your Vote
-              </h3>
+              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block mb-2 font-semibold">Score (0-100)</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={userVote.score}
-                    onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })}
-                    className="w-full"
-                  />
-                  <p className="text-center text-2xl font-bold mt-2" style={{ color: '#009384' }}>
-                    {userVote.score}
-                  </p>
+                  <input type="range" min="0" max="100" value={userVote.score} onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })} className="w-full" />
+                  <p className="text-center text-2xl font-bold mt-2" style={{ color: '#009384' }}>{userVote.score}</p>
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold">Rating</label>
                   <div className="flex gap-4">
-                    <button
-                      onClick={() => setUserVote({ ...userVote, thumbs: 'neutral' })}
-                      className={`px-6 py-2 rounded-lg ${userVote.thumbs === 'neutral' ? 'ring-2' : ''}`}
-                      style={{
-                        backgroundColor: userVote.thumbs === 'neutral' ? '#009384' : '#e5e7eb',
-                        color: userVote.thumbs === 'neutral' ? 'white' : 'black'
-                      }}
-                    >
-                      👍 Neutral
-                    </button>
-                    <button
-                      onClick={() => setUserVote({ ...userVote, thumbs: 'down' })}
-                      className={`px-6 py-2 rounded-lg ${userVote.thumbs === 'down' ? 'ring-2' : ''}`}
-                      style={{
-                        backgroundColor: userVote.thumbs === 'down' ? '#009384' : '#e5e7eb',
-                        color: userVote.thumbs === 'down' ? 'white' : 'black'
-                      }}
-                    >
-                      👎 Down
-                    </button>
-                    <button
-                      onClick={() => setUserVote({ ...userVote, thumbs: 'double-down' })}
-                      className={`px-6 py-2 rounded-lg ${userVote.thumbs === 'double-down' ? 'ring-2' : ''}`}
-                      style={{
-                        backgroundColor: userVote.thumbs === 'double-down' ? '#009384' : '#e5e7eb',
-                        color: userVote.thumbs === 'double-down' ? 'white' : 'black'
-                      }}
-                    >
-                      👎👎 Double Down
-                    </button>
+                    {['neutral', 'down', 'double-down'].map(t => (
+                      <button key={t} onClick={() => setUserVote({ ...userVote, thumbs: t })} className={`px-6 py-2 rounded-lg ${userVote.thumbs === t ? 'ring-2' : ''}`} style={{ backgroundColor: userVote.thumbs === t ? '#009384' : '#e5e7eb', color: userVote.thumbs === t ? 'white' : 'black' }}>
+                        {t === 'neutral' ? '👍 Neutral' : t === 'down' ? '👎 Down' : '👎👎 Double Down'}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold">Review (Optional)</label>
-                  <textarea
-                    value={userVote.text}
-                    onChange={(e) => setUserVote({ ...userVote, text: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    style={{ borderColor: '#31394d' }}
-                    rows="4"
-                    placeholder="Share your thoughts..."
-                  />
+                  <textarea value={userVote.text} onChange={(e) => setUserVote({ ...userVote, text: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" placeholder="Share your thoughts..." />
                 </div>
-                <button
-                  onClick={() => handleVoteSubmit(selectedFilm.id)}
-                  className="w-full py-3 rounded-lg text-white font-semibold text-lg"
-                  style={{ backgroundColor: '#009384' }}
-                >
-                  Submit Vote
-                </button>
+                <button onClick={() => handleVoteSubmit(selectedFilm.id)} className="w-full py-3 rounded-lg text-white font-semibold text-lg" style={{ backgroundColor: '#009384' }}>Submit Vote</button>
               </div>
             </div>
-
             <div>
-              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                All Reviews
-              </h3>
+              <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>All Reviews</h3>
               <div className="space-y-4">
-                {buzzFeed
-                  .filter(item => item.filmId === selectedFilm.id && item.type === 'review')
-                  .map(review => (
-                    <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                      <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-bold" style={{ color: '#31394d' }}>{review.memberName}</h4>
-                        <div className="flex items-center gap-4">
-                          <span className="text-2xl font-bold" style={{ color: '#009384' }}>
-                            {review.score}
-                          </span>
-                          <span className="text-2xl">
-                            {review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-gray-700 mb-2">{review.text}</p>
-                      <div className="flex gap-4">
-                        <button
-                          onClick={() => handleLikeBuzzItem(review.id, review.likes || [])}
-                          className="flex items-center gap-2 text-gray-600 hover:text-red-500"
-                        >
-                          <Heart
-                            size={20}
-                            fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'}
-                            color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'}
-                          />
-                          <span>{(review.likes || []).length}</span>
-                        </button>
+                {buzzFeed.filter(item => item.filmId === selectedFilm.id && item.type === 'review').map(review => (
+                  <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="font-bold" style={{ color: '#31394d' }}>{review.memberName}</h4>
+                      <div className="flex items-center gap-4">
+                        <span className="text-2xl font-bold" style={{ color: '#009384' }}>{review.score}</span>
+                        <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
                       </div>
                     </div>
-                  ))}
+                    <p className="text-gray-700 mb-2">{review.text}</p>
+                    <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
+                      <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
+                      <span>{(review.likes || []).length}</span>
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -1146,9 +820,7 @@ function App() {
 
         {page === 'admin' && isAdmin && (
           <div className="bg-white rounded-lg shadow-lg p-8">
-            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Admin Panel
-            </h2>
+            <h2 className="text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 rounded">
                 <h3 className="font-bold mb-2">Database Status</h3>
@@ -1165,67 +837,27 @@ function App() {
       {showSubmitMovie && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-              Submit a Movie
-            </h2>
+            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Submit a Movie</h2>
             <form onSubmit={handleSubmitMovie} className="space-y-4">
               <div>
                 <label className="block mb-2 font-semibold">Title *</label>
-                <input
-                  type="text"
-                  value={newSubmission.title}
-                  onChange={(e) => setNewSubmission({ ...newSubmission, title: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  style={{ borderColor: '#31394d' }}
-                  required
-                />
+                <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({ ...newSubmission, title: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">Movie Poster URL *</label>
-                <input
-                  type="url"
-                  value={newSubmission.image}
-                  onChange={(e) => setNewSubmission({ ...newSubmission, image: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  style={{ borderColor: '#31394d' }}
-                  required
-                />
+                <input type="url" value={newSubmission.image} onChange={(e) => setNewSubmission({ ...newSubmission, image: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">YouTube Trailer Link</label>
-                <input
-                  type="url"
-                  value={newSubmission.youtubeLink}
-                  onChange={(e) => setNewSubmission({ ...newSubmission, youtubeLink: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  style={{ borderColor: '#31394d' }}
-                />
+                <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({ ...newSubmission, youtubeLink: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
                 <label className="block mb-2 font-semibold">Description</label>
-                <textarea
-                  value={newSubmission.description}
-                  onChange={(e) => setNewSubmission({ ...newSubmission, description: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  style={{ borderColor: '#31394d' }}
-                  rows="4"
-                />
+                <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({ ...newSubmission, description: e.target.value })} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
               </div>
               <div className="flex gap-4">
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-lg text-white font-semibold"
-                  style={{ backgroundColor: '#009384' }}
-                >
-                  Submit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSubmitMovie(false)}
-                  className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400"
-                >
-                  Cancel
-                </button>
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ backgroundColor: '#009384' }}>Submit</button>
+                <button type="button" onClick={() => setShowSubmitMovie(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400">Cancel</button>
               </div>
             </form>
           </div>
