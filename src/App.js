@@ -1,44 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, Save, X, Upload, Plus, ThumbsUp, ThumbsDown, Trash2, Menu, ChevronLeft, Search, Calendar } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  getDocs, 
-  doc, 
-  updateDoc, 
-  deleteDoc,
-  getDoc,
-  query,
-  orderBy,
-  Timestamp,
-  setDoc,
-  arrayUnion,
-  arrayRemove
-} from 'firebase/firestore';
-import { 
-  getStorage, 
-  ref, 
-  uploadBytes, 
-  getDownloadURL 
-} from 'firebase/storage';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, orderBy, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// CORRECT Firebase Config
 const firebaseConfig = {
   apiKey: "AIzaSyC3-64R8gqBK4rTTfrX8ziKnY90YoWCJAU",
   authDomain: "bad-movie-night-835d5.firebaseapp.com",
   projectId: "bad-movie-night-835d5",
   storageBucket: "bad-movie-night-835d5.firebasestorage.app",
   messagingSenderId: "154194917027",
-  appId: "1:154194917027:web:157f4416ff5b026ea7f116",
-  measurementId: "G-70YGK3G3K5"
+  appId: "1:154194917027:web:157f4416ff5b026ea7f116"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -46,1576 +19,1775 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-const TMDB_API_KEY = '64458ed9df2d961fa32ee1deabaf1b5d';
+const TMDB_API_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIxMTQwMWQ5YzM1YzY5YjA4YmE0MGQyZTg4YTA1N2M0MSIsIm5iZiI6MTc2MDM5NjI3MS44MzYsInN1YiI6IjY4ZWQ4M2VmOTYwMmUzNDQ2NDlkZjFjNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.UQRRhgCKTHGM008164D9UPyR2Sj6avJx_IpI6-AjTTc';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
+const EMAIL_TO_MEMBER_ID = {
+  'mattdernlan@gmail.com': 'matt',
+  'colinjsherman@gmail.com': 'colin',
+  'gkovacs55@gmail.com': 'gabe',
+  'ryanpfleiderer12@gmail.com': 'ryan',
+  'hrising64@gmail.com': 'hunter',
+  'maximillian.stenstrom@gmail.com': 'max',
+  'jamesaburg@gmail.com': 'james'
+};
+
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentMember, setCurrentMember] = useState(null);
-  const [currentPage, setCurrentPage] = useState('home');
-  const [selectedFilm, setSelectedFilm] = useState(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
+  const [page, setPage] = useState('home');
   const [films, setFilms] = useState([]);
   const [members, setMembers] = useState([]);
   const [submissions, setSubmissions] = useState([]);
-  const [upcomingScreenings, setUpcomingScreenings] = useState([]);
-  
+  const [submissionComments, setSubmissionComments] = useState({});
+  const [buzzFeed, setBuzzFeed] = useState([]);
+  const [selectedFilm, setSelectedFilm] = useState(null);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [showLogin, setShowLogin] = useState(true);
+  const [showAddFilm, setShowAddFilm] = useState(false);
+  const [showSubmitMovie, setShowSubmitMovie] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authMode, setAuthMode] = useState('signin');
-  
-  const [showAddFilm, setShowAddFilm] = useState(false);
-  const [showEditFilm, setShowEditFilm] = useState(false);
-  const [showAddSubmission, setShowAddSubmission] = useState(false);
-  const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showAddScreening, setShowAddScreening] = useState(false);
-  const [showVoteModal, setShowVoteModal] = useState(false);
-  
-  const [filmForm, setFilmForm] = useState({
-    title: '', year: '', genre: '', runtime: '', plot: '',
-    posterUrl: '', tmdbId: '', screeningDate: '',
-    eventPosterUrl: '', trailerUrl: '', spotifyUrl: '', votes: []
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [editingFilm, setEditingFilm] = useState(null);
+  const [editingProfile, setEditingProfile] = useState(null);
+  const [newFilm, setNewFilm] = useState({
+    title: '', subtitle: '', image: '', eventPoster: '', rtScore: '', popcornScore: '',
+    bmnScore: 0, date: '', emoji: '🎬', type: 'bmn', trailer: '', isUpcoming: false
   });
-  
-  const [submissionForm, setSubmissionForm] = useState({
-    title: '', year: '', posterUrl: '', trailerUrl: '', reason: '', tmdbId: ''
+  const [newSubmission, setNewSubmission] = useState({
+    title: '', image: '', youtubeLink: '', description: ''
   });
-  
-  const [profileForm, setProfileForm] = useState({
-    displayName: '', bio: '', photoURL: ''
-  });
-  
-  const [screeningForm, setScreeningForm] = useState({
-    date: '', eventPosterUrl: '', title: ''
-  });
-  
-  const [voteForm, setVoteForm] = useState({
-    rating: 5, review: '', badges: []
-  });
-  
-  const [tmdbSearch, setTmdbSearch] = useState('');
-  const [tmdbResults, setTmdbResults] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [userVote, setUserVote] = useState({ score: 50, text: '', thumbs: 'neutral' });
+  const [replyText, setReplyText] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [commentingOn, setCommentingOn] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [pendingVotes, setPendingVotes] = useState([]);
+  const [tmdbData, setTmdbData] = useState(null);
+  const [searchingTmdb, setSearchingTmdb] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [tmdbSearchResults, setTmdbSearchResults] = useState([]);
+  const [showTmdbSearch, setShowTmdbSearch] = useState(false);
+  const [tmdbSearchQuery, setTmdbSearchQuery] = useState('');
+  const [filmVotes, setFilmVotes] = useState({});
+
+  const isAdmin = user && Object.keys(EMAIL_TO_MEMBER_ID).includes(user.email);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const memberDoc = await getDoc(doc(db, 'members', currentUser.uid));
-        if (memberDoc.exists()) {
-          const memberData = { id: currentUser.uid, ...memberDoc.data() };
-          setCurrentMember(memberData);
-          setIsAdmin(memberData.isAdmin || false);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        const memberId = EMAIL_TO_MEMBER_ID[u.email];
+        if (memberId) {
+          const memberDoc = await getDoc(doc(db, 'members', memberId));
+          if (memberDoc.exists()) {
+            setUserProfile({ id: memberId, ...memberDoc.data() });
+          }
         }
       } else {
-        setIsAdmin(false);
-        setCurrentMember(null);
+        setUserProfile(null);
+        setShowLogin(true);
       }
-      setLoading(false);
     });
+    loadData();
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (user) loadAllData();
-  }, [user]);
+    if (userProfile && films.length > 0) {
+      checkPendingVotes();
+    }
+  }, [userProfile, films, buzzFeed]);
 
   useEffect(() => {
+    if (selectedFilm && selectedFilm.title) {
+      setTmdbData(null);
+      searchTMDB(selectedFilm.title);
+      loadFilmVotes(selectedFilm.id);
+    }
+  }, [selectedFilm]);
+
+  // BROWSER BACK BUTTON FIX
+  useEffect(() => {
     const handlePopState = (e) => {
-      if (currentPage !== 'home') {
-        e.preventDefault();
-        setCurrentPage('home');
-        setSelectedFilm(null);
+      if (e.state && e.state.page) {
+        setPage(e.state.page);
+      } else {
+        setPage('home');
       }
     };
+    
     window.addEventListener('popstate', handlePopState);
-    if (currentPage !== 'home') {
-      window.history.pushState({ page: currentPage }, '', `#${currentPage}`);
-    }
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentPage]);
+  }, []);
 
-  const loadAllData = async () => {
+  const checkPendingVotes = () => {
+    const reviewedFilmIds = buzzFeed
+      .filter(item => item.type === 'review' && item.memberId === userProfile.id)
+      .map(item => item.filmId);
+    
+    const pastFilms = films.filter(f => {
+      const filmDate = new Date(f.date);
+      const today = new Date();
+      return filmDate < today && !f.isUpcoming;
+    });
+    
+    const pending = pastFilms.filter(f => !reviewedFilmIds.includes(f.id));
+    setPendingVotes(pending);
+  };
+
+  const loadFilmVotes = async (filmId) => {
     try {
-      await Promise.all([
-        loadFilms(),
-        loadMembers(),
-        loadSubmissions(),
-        loadUpcomingScreenings()
-      ]);
-    } catch (error) {
-      console.error('Error loading data:', error);
+      const votesSnap = await getDocs(collection(db, 'films', filmId, 'votes'));
+      const votes = {};
+      votesSnap.docs.forEach(d => {
+        votes[d.id] = d.data();
+      });
+      setFilmVotes(votes);
+    } catch (err) {
+      console.error('Error loading votes:', err);
     }
   };
 
-  const loadFilms = async () => {
-    const snapshot = await getDocs(query(collection(db, 'films'), orderBy('screeningDate', 'desc')));
-    setFilms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  // BMN SCORE CALCULATION - AVERAGE OF ALL VOTES
+  const calculateBMNScore = (filmId) => {
+    const reviews = buzzFeed.filter(item => 
+      item.type === 'review' && item.filmId === filmId && typeof item.score === 'number'
+    );
+    
+    if (reviews.length === 0) return 0;
+    
+    const sum = reviews.reduce((acc, review) => acc + review.score, 0);
+    return Math.round(sum / reviews.length);
   };
 
-  const loadMembers = async () => {
-    const snapshot = await getDocs(collection(db, 'members'));
-    setMembers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const filmsSnap = await getDocs(collection(db, 'films'));
+      let filmsData = filmsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      const membersSnap = await getDocs(collection(db, 'members'));
+      const membersData = membersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setMembers(membersData.length > 0 ? membersData : getInitialMembers());
+
+      const submissionsSnap = await getDocs(collection(db, 'submissions'));
+      const submissionsData = submissionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSubmissions(submissionsData);
+
+      const commentsData = {};
+      for (const sub of submissionsData) {
+        const commentsSnap = await getDocs(query(collection(db, 'submissions', sub.id, 'comments'), orderBy('timestamp', 'asc')));
+        commentsData[sub.id] = commentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      setSubmissionComments(commentsData);
+
+      const buzzSnap = await getDocs(query(collection(db, 'buzzFeed'), orderBy('timestamp', 'desc')));
+      const buzzData = buzzSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setBuzzFeed(buzzData);
+      
+      // Calculate BMN scores for all films
+      filmsData = filmsData.map(film => ({
+        ...film,
+        bmnScore: film.isUpcoming ? 0 : calculateBMNScoreFromBuzz(film.id, buzzData)
+      }));
+      
+      setFilms(filmsData.length > 0 ? filmsData.sort((a, b) => new Date(b.date) - new Date(a.date)) : getInitialFilms());
+      
+    } catch (err) {
+      console.error('Load error:', err);
+      setFilms(getInitialFilms());
+      setMembers(getInitialMembers());
+    }
+    setLoading(false);
   };
 
-  const loadSubmissions = async () => {
-    const snapshot = await getDocs(collection(db, 'submissions'));
-    setSubmissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  const calculateBMNScoreFromBuzz = (filmId, buzzData) => {
+    const reviews = buzzData.filter(item => 
+      item.type === 'review' && item.filmId === filmId && typeof item.score === 'number'
+    );
+    
+    if (reviews.length === 0) return 0;
+    
+    const sum = reviews.reduce((acc, review) => acc + review.score, 0);
+    return Math.round(sum / reviews.length);
   };
 
-  const loadUpcomingScreenings = async () => {
-    const snapshot = await getDocs(query(collection(db, 'upcomingScreenings'), orderBy('date', 'asc')));
-    setUpcomingScreenings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  };
-
-  const calculateBMNScore = (film) => {
-    if (!film.votes || film.votes.length === 0) return 0;
-    const sum = film.votes.reduce((acc, vote) => acc + vote.rating, 0);
-    return (sum / film.votes.length).toFixed(1);
-  };
-
-  const getUnreviewedFilms = (memberId) => {
-    return films.filter(film => {
-      const hasWatched = film.attendees?.includes(memberId);
-      const hasVoted = film.votes?.some(vote => vote.memberId === memberId);
-      return hasWatched && !hasVoted;
-    });
-  };
-
-  const isUpcomingScreening = (film) => {
-    if (!film.screeningDate) return false;
-    const screeningDate = film.screeningDate.toDate ? film.screeningDate.toDate() : new Date(film.screeningDate);
-    return screeningDate > new Date();
-  };
-
-  const navigateTo = (page, data = null) => {
-    setCurrentPage(page);
-    if (data && page === 'film') setSelectedFilm(data);
-    setMobileMenuOpen(false);
-  };
-
-  const goBack = () => window.history.back();
-
-  const handleAuth = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      if (authMode === 'signin') {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await setDoc(doc(db, 'members', userCredential.user.uid), {
-          email: email,
-          displayName: email.split('@')[0],
-          joinedAt: Timestamp.now(),
-          isAdmin: false,
-          photoURL: `https://i.pravatar.cc/150?u=${email}`,
-          bio: '',
-          badges: []
-        });
-      }
+      await signInWithEmailAndPassword(auth, email, password);
+      setShowLogin(false);
       setEmail('');
       setPassword('');
-    } catch (error) {
-      alert(error.message);
+    } catch (err) {
+      alert('Login failed: ' + err.message);
     }
   };
 
-  const handleSignOut = async () => {
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
     try {
-      await signOut(auth);
-      setCurrentPage('home');
-    } catch (error) {
-      console.error('Error signing out:', error);
+      await sendPasswordResetEmail(auth, email);
+      alert('Password reset email sent! Check your inbox.');
+      setForgotPassword(false);
+    } catch (err) {
+      alert('Error: ' + err.message);
     }
   };
 
-  const searchTMDB = async (searchTerm) => {
-    if (!searchTerm.trim()) return;
-    try {
-      const response = await fetch(
-        `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(searchTerm)}`
-      );
-      const data = await response.json();
-      setTmdbResults(data.results || []);
-    } catch (error) {
-      console.error('TMDB search error:', error);
-    }
+  const handleLogout = async () => {
+    await signOut(auth);
+    setShowLogin(true);
+    setPage('home');
   };
 
-  const selectTMDBMovie = async (movie) => {
-    try {
-      const response = await fetch(
-        `${TMDB_BASE_URL}/movie/${movie.id}?api_key=${TMDB_API_KEY}&append_to_response=videos`
-      );
-      const details = await response.json();
-      const trailer = details.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-      const trailerUrl = trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : '';
-      
-      if (showAddFilm || showEditFilm) {
-        setFilmForm(prev => ({
-          ...prev,
-          title: details.title,
-          year: details.release_date?.split('-')[0] || '',
-          genre: details.genres?.map(g => g.name).join(', ') || '',
-          runtime: details.runtime ? `${details.runtime} min` : '',
-          plot: details.overview,
-          posterUrl: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : '',
-          tmdbId: details.id.toString(),
-          trailerUrl: trailerUrl
-        }));
-      } else if (showAddSubmission) {
-        setSubmissionForm(prev => ({
-          ...prev,
-          title: details.title,
-          year: details.release_date?.split('-')[0] || '',
-          posterUrl: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : '',
-          tmdbId: details.id.toString(),
-          trailerUrl: trailerUrl
-        }));
-      }
-      setTmdbResults([]);
-      setTmdbSearch('');
-    } catch (error) {
-      console.error('Error fetching movie details:', error);
-    }
-  };
-
-  const handleFileUpload = async (file, fieldName, formSetter) => {
+  const handleImageUpload = async (e, type, target = 'default') => {
+    const file = e.target.files[0];
     if (!file) return;
-    setUploading(true);
+
+    setUploadingImage(true);
     try {
-      const storageRef = ref(storage, `uploads/${Date.now()}_${file.name}`);
+      const storageRef = ref(storage, `${type}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
-      formSetter(prev => ({ ...prev, [fieldName]: url }));
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Error uploading file');
-    } finally {
-      setUploading(false);
+      
+      if (type === 'members' && editingProfile) {
+        setEditingProfile({ ...editingProfile, image: url });
+      } else if (type === 'films' && editingFilm) {
+        if (target === 'eventPoster') {
+          setEditingFilm({ ...editingFilm, eventPoster: url });
+        } else {
+          setEditingFilm({ ...editingFilm, image: url });
+        }
+      } else if (type === 'submissions') {
+        setNewSubmission({ ...newSubmission, image: url });
+      } else if (type === 'newfilm') {
+        if (target === 'eventPoster') {
+          setNewFilm({ ...newFilm, eventPoster: url });
+        } else {
+          setNewFilm({ ...newFilm, image: url });
+        }
+      }
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+    setUploadingImage(false);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editingProfile) return;
+    try {
+      await updateDoc(doc(db, 'members', editingProfile.id), {
+        name: editingProfile.name,
+        title: editingProfile.title,
+        bio: editingProfile.bio,
+        image: editingProfile.image
+      });
+      await loadData();
+      setEditingProfile(null);
+      alert('Profile updated!');
+    } catch (err) {
+      alert('Save failed: ' + err.message);
     }
   };
 
-  const handleAddFilm = async (e) => {
-    e.preventDefault();
+  const handleSaveFilm = async () => {
+    if (!editingFilm) return;
     try {
-      await addDoc(collection(db, 'films'), {
-        ...filmForm,
-        screeningDate: filmForm.screeningDate ? Timestamp.fromDate(new Date(filmForm.screeningDate)) : Timestamp.now(),
-        addedAt: Timestamp.now(),
-        addedBy: user.uid,
-        attendees: [],
-        votes: []
-      });
-      await loadFilms();
-      setShowAddFilm(false);
-      setFilmForm({
-        title: '', year: '', genre: '', runtime: '', plot: '',
-        posterUrl: '', tmdbId: '', screeningDate: '',
-        eventPosterUrl: '', trailerUrl: '', spotifyUrl: '', votes: []
-      });
-    } catch (error) {
-      console.error('Error adding film:', error);
-      alert('Error adding film');
-    }
-  };
-
-  const handleEditFilm = async (e) => {
-    e.preventDefault();
-    try {
-      const filmRef = doc(db, 'films', selectedFilm.id);
-      await updateDoc(filmRef, {
-        ...filmForm,
-        screeningDate: filmForm.screeningDate ? Timestamp.fromDate(new Date(filmForm.screeningDate)) : selectedFilm.screeningDate
-      });
-      await loadFilms();
-      setShowEditFilm(false);
-    } catch (error) {
-      console.error('Error updating film:', error);
-      alert('Error updating film');
+      const updatedFilm = {
+        ...editingFilm,
+        bmnScore: editingFilm.isUpcoming ? 0 : calculateBMNScore(editingFilm.id)
+      };
+      await updateDoc(doc(db, 'films', editingFilm.id), updatedFilm);
+      await loadData();
+      setEditingFilm(null);
+      setSelectedFilm(null);
+      alert('Film updated!');
+    } catch (err) {
+      alert('Save failed: ' + err.message);
     }
   };
 
   const handleDeleteFilm = async (filmId) => {
-    if (!window.confirm('Delete this film?')) return;
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to delete this film?')) return;
     try {
       await deleteDoc(doc(db, 'films', filmId));
-      await loadFilms();
-      setCurrentPage('home');
-    } catch (error) {
-      console.error('Error deleting film:', error);
+      await loadData();
+      setPage('home');
+      alert('Film deleted!');
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
     }
   };
 
-  const handleAddSubmission = async (e) => {
-    e.preventDefault();
-    try {
-      await addDoc(collection(db, 'submissions'), {
-        ...submissionForm,
-        submittedBy: user.uid,
-        submittedByName: currentMember.displayName,
-        submittedAt: Timestamp.now(),
-        upvotes: [],
-        downvotes: [],
-        comments: []
-      });
-      await loadSubmissions();
-      setShowAddSubmission(false);
-      setSubmissionForm({
-        title: '', year: '', posterUrl: '', trailerUrl: '', reason: '', tmdbId: ''
-      });
-    } catch (error) {
-      console.error('Error adding submission:', error);
-      alert('Error adding submission');
-    }
-  };
-
+  // ADMIN CAN DELETE SUBMISSIONS
   const handleDeleteSubmission = async (submissionId) => {
-    if (!window.confirm('Delete this submission?')) return;
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to delete this submission?')) return;
     try {
       await deleteDoc(doc(db, 'submissions', submissionId));
-      await loadSubmissions();
-    } catch (error) {
-      console.error('Error deleting submission:', error);
+      await loadData();
+      alert('Submission deleted!');
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
     }
   };
 
-  const handleVoteSubmission = async (submissionId, voteType) => {
+  const handleDeleteBuzzItem = async (itemId) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to delete this?')) return;
     try {
-      const submissionRef = doc(db, 'submissions', submissionId);
-      const submission = submissions.find(s => s.id === submissionId);
-      const hasUpvoted = submission.upvotes?.includes(user.uid);
-      const hasDownvoted = submission.downvotes?.includes(user.uid);
-      
-      if (voteType === 'up') {
-        if (hasUpvoted) {
-          await updateDoc(submissionRef, { upvotes: arrayRemove(user.uid) });
-        } else {
-          await updateDoc(submissionRef, { 
-            upvotes: arrayUnion(user.uid),
-            downvotes: arrayRemove(user.uid)
-          });
-        }
-      } else {
-        if (hasDownvoted) {
-          await updateDoc(submissionRef, { downvotes: arrayRemove(user.uid) });
-        } else {
-          await updateDoc(submissionRef, { 
-            downvotes: arrayUnion(user.uid),
-            upvotes: arrayRemove(user.uid)
-          });
-        }
-      }
-      await loadSubmissions();
-    } catch (error) {
-      console.error('Error voting:', error);
+      await deleteDoc(doc(db, 'buzzFeed', itemId));
+      await loadData();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
     }
   };
 
-  const handleAddComment = async (submissionId, comment) => {
-    if (!comment.trim()) return;
-    try {
-      const submissionRef = doc(db, 'submissions', submissionId);
-      await updateDoc(submissionRef, {
-        comments: arrayUnion({
-          text: comment,
-          authorId: user.uid,
-          authorName: currentMember.displayName,
-          createdAt: new Date().toISOString()
-        })
-      });
-      await loadSubmissions();
-    } catch (error) {
-      console.error('Error adding comment:', error);
-    }
-  };
-
-  const handleSubmitVote = async (e) => {
-    e.preventDefault();
-    try {
-      const filmRef = doc(db, 'films', selectedFilm.id);
-      const vote = {
-        memberId: user.uid,
-        memberName: currentMember.displayName,
-        rating: parseFloat(voteForm.rating),
-        review: voteForm.review,
-        badges: voteForm.badges,
-        createdAt: Timestamp.now()
-      };
-      await updateDoc(filmRef, {
-        votes: arrayUnion(vote)
-      });
-      await loadFilms();
-      setShowVoteModal(false);
-      setVoteForm({ rating: 5, review: '', badges: [] });
-    } catch (error) {
-      console.error('Error submitting vote:', error);
-      alert('Error submitting vote');
-    }
-  };
-
-  const toggleBadge = (badge) => {
-    setVoteForm(prev => ({
-      ...prev,
-      badges: prev.badges.includes(badge)
-        ? prev.badges.filter(b => b !== badge)
-        : [...prev.badges, badge]
-    }));
-  };
-
-  const handleEditProfile = async (e) => {
-    e.preventDefault();
-    try {
-      await updateDoc(doc(db, 'members', user.uid), profileForm);
-      await loadMembers();
-      setShowEditProfile(false);
-      const memberDoc = await getDoc(doc(db, 'members', user.uid));
-      if (memberDoc.exists()) {
-        setCurrentMember({ id: user.uid, ...memberDoc.data() });
-      }
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      alert('Error updating profile');
-    }
-  };
-
-  const openEditProfile = () => {
-    setProfileForm({
-      displayName: currentMember.displayName || '',
-      bio: currentMember.bio || '',
-      photoURL: currentMember.photoURL || ''
-    });
-    setShowEditProfile(true);
-  };
-
-  const handleAddScreening = async (e) => {
-    e.preventDefault();
-    try {
-      await addDoc(collection(db, 'upcomingScreenings'), {
-        ...screeningForm,
-        date: Timestamp.fromDate(new Date(screeningForm.date)),
-        addedBy: user.uid,
-        addedAt: Timestamp.now()
-      });
-      await loadUpcomingScreenings();
-      setShowAddScreening(false);
-      setScreeningForm({ date: '', eventPosterUrl: '', title: '' });
-    } catch (error) {
-      console.error('Error adding screening:', error);
-      alert('Error adding screening');
-    }
-  };
-
-  const handleDeleteScreening = async (screeningId) => {
-    if (!window.confirm('Delete this screening?')) return;
-    try {
-      await deleteDoc(doc(db, 'upcomingScreenings', screeningId));
-      await loadUpcomingScreenings();
-    } catch (error) {
-      console.error('Error deleting screening:', error);
-    }
-  };
-
-  const getMemberStats = (memberId) => {
-    const memberFilms = films.filter(f => f.attendees?.includes(memberId));
-    const memberVotes = films.flatMap(f => f.votes || []).filter(v => v.memberId === memberId);
-    const avgRating = memberVotes.length > 0
-      ? (memberVotes.reduce((sum, v) => sum + v.rating, 0) / memberVotes.length).toFixed(1)
-      : 0;
-    return {
-      filmsWatched: memberFilms.length,
-      reviewsGiven: memberVotes.length,
-      avgRating: avgRating,
-      badges: memberVotes.flatMap(v => v.badges || [])
+  const handleVoteSubmit = async (filmId) => {
+    if (!userProfile) return;
+    
+    const voteData = {
+      authUserId: user.uid,
+      authUserEmail: user.email,
+      memberId: userProfile.id,
+      memberName: userProfile.name,
+      score: userVote.score,
+      text: userVote.text,
+      thumbs: userVote.thumbs,
+      timestamp: new Date().toISOString(),
+      filmId: filmId,
+      filmTitle: selectedFilm.title,
+      likes: []
     };
-  };
 
-  const getLeaderboard = () => {
-    return members.map(member => {
-      const stats = getMemberStats(member.id);
-      const points = (stats.filmsWatched * 10) + (stats.reviewsGiven * 20) + (stats.badges.length * 5);
-      return { ...member, ...stats, points };
-    }).sort((a, b) => b.points - a.points);
-  };
-
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'TBA';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
-  const getYouTubeEmbedUrl = (url) => {
-    if (!url) return null;
-    const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
-    return videoId ? `https://www.youtube.com/embed/${videoId}` : null;
-  };
-
-  const getSpotifyEmbedUrl = (url) => {
-    if (!url) return null;
-    let playlistId;
-    if (url.includes('open.spotify.com/playlist/')) {
-      playlistId = url.split('playlist/')[1]?.split('?')[0];
-    } else if (url.includes('spotify:playlist:')) {
-      playlistId = url.split('spotify:playlist:')[1];
-    }
-    return playlistId ? `https://open.spotify.com/embed/playlist/${playlistId}` : null;
-  };
-
-  const getMemberById = (memberId) => members.find(m => m.id === memberId);
-
-  const getFilmByBadge = (badge, memberId) => {
-    for (const film of films) {
-      const vote = film.votes?.find(v => v.memberId === memberId && v.badges?.includes(badge));
-      if (vote) return film;
-    }
-    return null;
-  };
-
-  const openAddFilm = () => {
-    setFilmForm({
-      title: '', year: '', genre: '', runtime: '', plot: '',
-      posterUrl: '', tmdbId: '', screeningDate: '',
-      eventPosterUrl: '', trailerUrl: '', spotifyUrl: '', votes: []
+    await setDoc(doc(db, 'films', filmId, 'votes', userProfile.id), voteData);
+    
+    await addDoc(collection(db, 'buzzFeed'), {
+      ...voteData,
+      type: 'review',
+      timestamp: serverTimestamp()
     });
-    setShowAddFilm(true);
-  };
 
-  const openEditFilm = (film) => {
-    setFilmForm({
-      title: film.title || '',
-      year: film.year || '',
-      genre: film.genre || '',
-      runtime: film.runtime || '',
-      plot: film.plot || '',
-      posterUrl: film.posterUrl || '',
-      tmdbId: film.tmdbId || '',
-      screeningDate: film.screeningDate?.toDate ? film.screeningDate.toDate().toISOString().split('T')[0] : '',
-      eventPosterUrl: film.eventPosterUrl || '',
-      trailerUrl: film.trailerUrl || '',
-      spotifyUrl: film.spotifyUrl || '',
-      votes: film.votes || []
+    await loadData();
+    setUserVote({ score: 50, text: '', thumbs: 'neutral' });
+    alert('Vote submitted successfully!');
+  };
+const handleLikeBuzzItem = async (itemId, likes) => {
+    if (!userProfile) return;
+    
+    const isLiked = likes && likes.includes(userProfile.id);
+    await updateDoc(doc(db, 'buzzFeed', itemId), {
+      likes: isLiked ? arrayRemove(userProfile.id) : arrayUnion(userProfile.id)
     });
-    setShowEditFilm(true);
+    await loadData();
   };
 
-  const openVoteModal = (film) => {
-    setSelectedFilm(film);
-    setVoteForm({ rating: 5, review: '', badges: [] });
-    setShowVoteModal(true);
+  const handleReplyToBuzz = async (itemId) => {
+    if (!userProfile || !replyText.trim()) return;
+    
+    await addDoc(collection(db, 'buzzFeed'), {
+      type: 'reply',
+      replyTo: itemId,
+      text: replyText,
+      memberName: userProfile.name,
+      memberId: userProfile.id,
+      timestamp: serverTimestamp()
+    });
+    
+    setReplyText('');
+    setReplyingTo(null);
+    await loadData();
   };
 
+  const handleCommentOnSubmission = async (submissionId) => {
+    if (!userProfile || !commentText.trim()) return;
+    
+    await addDoc(collection(db, 'submissions', submissionId, 'comments'), {
+      text: commentText,
+      memberName: userProfile.name,
+      memberId: userProfile.id,
+      timestamp: serverTimestamp()
+    });
+    
+    setCommentText('');
+    setCommentingOn(null);
+    await loadData();
+  };
+
+  const handleSubmitMovie = async (e) => {
+    e.preventDefault();
+    if (!userProfile) return;
+
+    const submissionData = {
+      ...newSubmission,
+      submittedBy: userProfile.name,
+      submitterId: userProfile.id,
+      timestamp: new Date().toISOString(),
+      votes: {},
+      status: 'pending'
+    };
+
+    await addDoc(collection(db, 'submissions'), submissionData);
+    setNewSubmission({ title: '', image: '', youtubeLink: '', description: '' });
+    setShowSubmitMovie(false);
+    setShowTmdbSearch(false);
+    setTmdbSearchResults([]);
+    await loadData();
+  };
+
+  const handleVoteOnSubmission = async (submissionId, vote) => {
+    if (!userProfile) return;
+    await updateDoc(doc(db, 'submissions', submissionId), {
+      [`votes.${userProfile.id}`]: vote
+    });
+    await loadData();
+  };
+
+  const handleAddFilm = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    try {
+      await addDoc(collection(db, 'films'), {
+        ...newFilm,
+        rtScore: parseInt(newFilm.rtScore),
+        popcornScore: parseInt(newFilm.popcornScore || 0),
+        bmnScore: newFilm.isUpcoming ? 0 : parseInt(newFilm.bmnScore || 0)
+      });
+      setNewFilm({
+        title: '', subtitle: '', image: '', eventPoster: '', rtScore: '', popcornScore: '',
+        bmnScore: 0, date: '', emoji: '🎬', type: 'bmn', trailer: '', isUpcoming: false
+      });
+      setShowAddFilm(false);
+      await loadData();
+      alert('Film added!');
+    } catch (err) {
+      alert('Add failed: ' + err.message);
+    }
+  };
+
+  const searchTMDB = async (title) => {
+    setSearchingTmdb(true);
+    try {
+      const response = await fetch(
+        `${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(title)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${TMDB_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      const data = await response.json();
+      if (data.results && data.results.length > 0) {
+        await fetchTMDBDetails(data.results[0].id);
+      }
+    } catch (err) {
+      console.error('TMDB search error:', err);
+    }
+    setSearchingTmdb(false);
+  };
+
+  const handleTmdbSearch = async () => {
+    if (!tmdbSearchQuery.trim()) return;
+    setSearchingTmdb(true);
+    try {
+      const response = await fetch(
+        `${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(tmdbSearchQuery)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${TMDB_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      const data = await response.json();
+      setTmdbSearchResults(data.results || []);
+    } catch (err) {
+      console.error('TMDB search error:', err);
+    }
+    setSearchingTmdb(false);
+  };
+
+  const selectTmdbMovie = (movie) => {
+    setNewSubmission({
+      ...newSubmission,
+      title: movie.title,
+      image: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '',
+      description: movie.overview || ''
+    });
+    setShowTmdbSearch(false);
+    setTmdbSearchResults([]);
+    setTmdbSearchQuery('');
+  };
+
+  const fetchTMDBDetails = async (movieId) => {
+    try {
+      const response = await fetch(
+        `${TMDB_BASE_URL}/movie/${movieId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${TMDB_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      const data = await response.json();
+      setTmdbData(data);
+    } catch (err) {
+      console.error('TMDB details error:', err);
+    }
+  };
+
+  const getRTIcon = (score) => {
+    return score >= 50 
+      ? "https://www.clipartmax.com/png/small/50-503753_rotten-tomatoes-logo-png.png"
+      : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png?alt=media&token=4a975032-aed9-4f51-9809-beeff10084b0";
+  };
+
+  const getPopcornIcon = (score) => {
+    return score >= 50
+      ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588548_open-popcorn-icon-rotten-tomatoes.png?alt=media&token=31b871a7-d2ba-4bd3-a408-b286bf07d16d"
+      : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png?alt=media&token=6b444b2a-dc46-443f-b3ed-6fd88c814b2a";
+  };
+
+  const extractYouTubeId = (url) => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  // NAVIGATION WITH BROWSER HISTORY
+  const navigateTo = (newPage, data = null) => {
+    if (data) {
+      if (newPage === 'film') setSelectedFilm(data);
+      if (newPage === 'profile') setSelectedMember(data);
+    }
+    setPage(newPage);
+    setShowMobileMenu(false);
+    window.history.pushState({ page: newPage }, '', `#${newPage}`);
+  };
+
+  const goBack = () => {
+    window.history.back();
+  };
+
+  // HELPER FUNCTION TO GET FILM FROM BADGE EMOJI
+  const getFilmForBadge = (emoji, memberEmojis) => {
+    const emojiIndex = memberEmojis.indexOf(emoji);
+    const filmsWithEmoji = films.filter(f => f.emoji === emoji).sort((a, b) => new Date(a.date) - new Date(b.date));
+    return filmsWithEmoji[emojiIndex] || filmsWithEmoji[0];
+  };
+
+  // LOADING STATE
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        background: 'linear-gradient(135deg, #f8f9fb 0%, #e8ecf1 100%)'
-      }}>
-        <div style={{
-          fontSize: '48px',
-          fontWeight: '900',
-          background: 'linear-gradient(135deg, #31394d 0%, #009384 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          fontFamily: 'Courier New, monospace'
-        }}>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
           Loading...
         </div>
       </div>
     );
   }
 
-  const styles = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body, html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f8f9fb; color: #1a1d29; overflow-x: hidden; }
-    h1, h2, h3, .logo, .hero-title { font-family: 'Courier New', monospace; font-weight: 700; }
-    .blob { position: fixed; border-radius: 50%; filter: blur(80px); opacity: 0.12; z-index: 0; pointer-events: none; animation: float 25s ease-in-out infinite; }
-    .blob-1 { width: 500px; height: 500px; background: #009384; top: -150px; left: -150px; animation-delay: 0s; }
-    .blob-2 { width: 600px; height: 600px; background: #31394d; bottom: -200px; right: -200px; animation-delay: 8s; }
-    .blob-3 { width: 400px; height: 400px; background: #009384; top: 40%; right: -150px; animation-delay: 16s; }
-    @keyframes float { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(40px, -40px); } 66% { transform: translate(-30px, 30px); } }
-    .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background-image: url('https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FSPLASH%20SCREEN%20001.png?alt=media&token=0ad0ed4d-8c85-4d4a-87bd-4f133dbb94e8'); background-size: cover; background-position: center; position: relative; }
-    .login-page::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(49, 57, 77, 0.75); backdrop-filter: blur(4px); }
-    .login-card { position: relative; z-index: 1; background: white; border-radius: 32px; padding: 48px; max-width: 450px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-    .login-logo { font-size: 64px; text-align: center; margin-bottom: 16px; }
-    .login-title { font-size: 36px; text-align: center; margin-bottom: 8px; background: linear-gradient(135deg, #31394d 0%, #009384 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .login-subtitle { text-align: center; color: #6b7280; margin-bottom: 20px; font-size: 15px; }
-    .login-badge { text-align: center; color: #009384; font-weight: 700; font-size: 13px; margin-bottom: 32px; text-transform: uppercase; letter-spacing: 1px; }
-    .header { background: white; padding: 16px 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 999; }
-    .logo { font-size: 24px; font-weight: 900; background: linear-gradient(135deg, #31394d 0%, #009384 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; }
-    .logo::before { content: '🎬'; -webkit-text-fill-color: initial; margin-right: 8px; }
-    .nav-menu { display: flex; gap: 8px; list-style: none; }
-    .nav-link { padding: 10px 20px; border-radius: 12px; font-weight: 600; color: #1a1d29; transition: all 0.3s; cursor: pointer; font-size: 14px; }
-    .nav-link:hover, .nav-link.active { background: linear-gradient(135deg, rgba(49,57,77,0.1) 0%, rgba(0,147,132,0.1) 100%); color: #009384; }
-    .hamburger { display: none; flex-direction: column; gap: 4px; cursor: pointer; padding: 8px; }
-    .hamburger span { width: 24px; height: 3px; background: #31394d; border-radius: 2px; }
-    .mobile-menu { display: none; position: fixed; top: 70px; left: 0; right: 0; background: white; box-shadow: 0 8px 30px rgba(0,0,0,0.12); padding: 20px; z-index: 998; }
-    .mobile-menu.open { display: block; }
-    .mobile-menu .nav-link { display: block; padding: 16px; margin-bottom: 8px; }
-    .btn { padding: 12px 28px; border: none; border-radius: 50px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.3s; display: inline-flex; align-items: center; gap: 8px; }
-    .btn-primary { background: linear-gradient(135deg, #31394d 0%, #009384 100%); color: white; box-shadow: 0 8px 40px rgba(0,147,132,0.25); }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 50px rgba(0,147,132,0.4); }
-    .btn-secondary { background: white; color: #31394d; border: 2px solid #31394d; }
-    .btn-secondary:hover { background: #31394d; color: white; }
-    .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
-    .btn-small { padding: 8px 16px; font-size: 13px; }
-    .card { background: white; border-radius: 20px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 24px; position: relative; }
-    .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: linear-gradient(135deg, #31394d 0%, #009384 100%); border-radius: 20px 20px 0 0; }
-    .form-group { margin-bottom: 24px; }
-    .form-label { display: block; font-weight: 600; margin-bottom: 8px; color: #1a1d29; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .form-input, .form-textarea { width: 100%; padding: 14px 18px; border: 2px solid #e5e7eb; border-radius: 14px; font-size: 15px; font-family: 'Inter', sans-serif; transition: all 0.3s; background: white; }
-    .form-input:focus, .form-textarea:focus { outline: none; border-color: #009384; box-shadow: 0 0 0 4px rgba(0,147,132,0.1); }
-    .form-textarea { min-height: 120px; resize: vertical; }
-    .container { max-width: 1400px; margin: 0 auto; padding: 32px 24px; position: relative; z-index: 1; }
-    .hero { text-align: center; padding: 60px 20px; margin-bottom: 40px; }
-    .hero-title { font-size: 56px; font-weight: 900; margin-bottom: 16px; background: linear-gradient(135deg, #31394d 0%, #009384 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero-subtitle { font-size: 18px; color: #6b7280; max-width: 600px; margin: 0 auto 32px; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
-    .stat-card { background: white; border-radius: 18px; padding: 24px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.3s; }
-    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(135deg, #31394d 0%, #009384 100%); }
-    .stat-card:hover { transform: translateY(-4px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .stat-value { font-size: 42px; font-weight: 900; background: linear-gradient(135deg, #31394d 0%, #009384 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; font-family: 'Courier New', monospace; }
-    .stat-label { font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-    .movie-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; margin-top: 32px; }
-    .movie-card { background: white; border-radius: 18px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.4s; cursor: pointer; position: relative; }
-    .movie-card:hover { transform: translateY(-8px); box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-    .movie-card.upcoming { border: 3px solid #009384; animation: pulse 2s ease-in-out infinite; }
-    @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(0,147,132,0.4); } 50% { box-shadow: 0 0 0 10px rgba(0,147,132,0); } }
-    .upcoming-badge { position: absolute; top: 12px; right: 12px; background: linear-gradient(135deg, #31394d 0%, #009384 100%); color: white; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; z-index: 2; text-transform: uppercase; }
-    .movie-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; }
-    .movie-info { padding: 18px; }
-    .movie-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; font-family: 'Courier New', monospace; }
-    .movie-meta { display: flex; gap: 10px; font-size: 13px; color: #6b7280; margin-bottom: 12px; }
-    .bmn-score { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: linear-gradient(135deg, rgba(49,57,77,0.1) 0%, rgba(0,147,132,0.1) 100%); border-radius: 12px; font-weight: 700; color: #009384; }
-    .leaderboard-item { background: white; border-radius: 18px; padding: 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.3s; }
-    .leaderboard-item:hover { transform: translateX(8px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .rank { font-size: 28px; font-weight: 900; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(49,57,77,0.1) 0%, rgba(0,147,132,0.1) 100%); border-radius: 14px; color: #009384; font-family: 'Courier New', monospace; }
-    .rank-1 { background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); color: white; }
-    .rank-2 { background: linear-gradient(135deg, #C0C0C0 0%, #808080 100%); color: white; }
-    .rank-3 { background: linear-gradient(135deg, #CD7F32 0%, #8B4513 100%); color: white; }
-    .member-avatar { width: 65px; height: 65px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .member-info { flex: 1; }
-    .member-name { font-size: 19px; font-weight: 700; margin-bottom: 6px; font-family: 'Courier New', monospace; }
-    .member-stats { display: flex; gap: 12px; flex-wrap: wrap; }
-    .stat-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; background: linear-gradient(135deg, rgba(49,57,77,0.1) 0%, rgba(0,147,132,0.1) 100%); border-radius: 10px; font-weight: 600; color: #009384; font-size: 12px; }
-    .badge { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; }
-    .badge:hover { transform: scale(1.05); }
-    .badge.active { background: linear-gradient(135deg, #31394d 0%, #009384 100%); color: white; }
-    .badge.inactive { background: #f3f4f6; color: #6b7280; }
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
-    .modal { background: white; border-radius: 24px; max-width: 700px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-    .modal-header { padding: 28px 32px; border-bottom: 2px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; }
-    .modal-title { font-size: 26px; font-weight: 900; background: linear-gradient(135deg, #31394d 0%, #009384 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .modal-close { background: none; border: none; font-size: 28px; cursor: pointer; color: #6b7280; }
-    .modal-close:hover { color: #1a1d29; }
-    .modal-body { padding: 32px; }
-    .tmdb-results { max-height: 300px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 12px; margin-top: 12px; }
-    .tmdb-result { padding: 12px; display: flex; gap: 12px; cursor: pointer; transition: all 0.2s; border-bottom: 1px solid #f3f4f6; }
-    .tmdb-result:hover { background: linear-gradient(135deg, rgba(49,57,77,0.05) 0%, rgba(0,147,132,0.05) 100%); }
-    .tmdb-poster { width: 50px; height: 75px; object-fit: cover; border-radius: 6px; }
-    .tmdb-info { flex: 1; }
-    .tmdb-title { font-weight: 600; margin-bottom: 4px; }
-    .tmdb-year { font-size: 13px; color: #6b7280; }
-    .upload-area { border: 3px dashed #e5e7eb; border-radius: 16px; padding: 32px; text-align: center; transition: all 0.3s; cursor: pointer; background: linear-gradient(135deg, rgba(49,57,77,0.02) 0%, rgba(0,147,132,0.02) 100%); }
-    .upload-area:hover { border-color: #009384; }
-    .film-header { display: grid; grid-template-columns: 220px 1fr; gap: 32px; margin-bottom: 32px; }
-    .film-poster-large { width: 100%; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-    .media-embed { aspect-ratio: 16/9; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.12); margin: 24px 0; }
-    .media-embed iframe { width: 100%; height: 100%; border: none; }
-    .spotify-embed { height: 380px; }
-    .submission-card { background: white; border-radius: 18px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.3s; border-left: 4px solid transparent; }
-    .submission-card:hover { border-left-color: #009384; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .submission-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px; }
-    .submitter { display: flex; align-items: center; gap: 12px; }
-    .submitter-avatar { width: 45px; height: 45px; border-radius: 50%; border: 2px solid #009384; }
-    .vote-buttons { display: flex; gap: 8px; }
-    .vote-btn { padding: 8px 16px; border: 2px solid #e5e7eb; border-radius: 10px; background: white; cursor: pointer; font-weight: 600; transition: all 0.3s; }
-    .vote-btn:hover { border-color: #009384; }
-    .vote-btn.voted { background: linear-gradient(135deg, #31394d 0%, #009384 100%); color: white; border-color: #009384; }
-    .comments-section { margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e5e7eb; }
-    .comment { background: #f8f9fb; padding: 12px 16px; border-radius: 10px; margin-bottom: 8px; }
-    .comment-author { font-weight: 600; color: #009384; margin-bottom: 4px; font-size: 13px; }
-    .divider { height: 2px; background: linear-gradient(90deg, transparent, #e5e7eb, transparent); margin: 32px 0; }
-    @media (max-width: 768px) {
-      .nav-menu { display: none; }
-      .hamburger { display: flex; }
-      .hero-title { font-size: 36px; }
-      .film-header { grid-template-columns: 1fr; }
-      .movie-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    }
-  `;
-
-  if (!user) {
+  // LOGIN PAGE WITH BACKGROUND IMAGE
+  if (showLogin || !user) {
     return (
-      <>
-        <style>{styles}</style>
-        <div className="login-page">
-          <div className="login-card">
-            <div className="login-logo">🎬</div>
-            <h1 className="login-title">Bad Movie Night</h1>
-            <p className="login-subtitle">Where Terrible Movies Become Legendary</p>
-            <p className="login-badge">🎬 EXCLUSIVE • INVITE ONLY • MEMBERS ONLY 🎬</p>
-            <form onSubmit={handleAuth}>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input type="email" className="form-input" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Password</label>
-                <input type="password" className="form-input" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                {authMode === 'signin' ? 'Sign In' : 'Sign Up'}
+      <div 
+        className="min-h-screen flex items-center justify-center relative"
+        style={{
+          backgroundImage: 'url(https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FSPLASH%20SCREEN%20001.png?alt=media&token=0ad0ed4d-8c85-4d4a-87bd-4f133dbb94e8)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+        <div className="bg-white p-8 rounded-lg shadow-2xl w-96 relative z-10">
+          <h1 className="text-4xl mb-2 text-center" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
+            Bad Movie Night
+          </h1>
+          <p className="text-center text-sm mb-1 text-gray-600" style={{ fontStyle: 'italic' }}>
+            Where Terrible Movies Become Legendary
+          </p>
+          <div className="text-center text-xs mb-6 font-semibold" style={{ color: '#009384' }}>
+            🎬 EXCLUSIVE • INVITE ONLY • MEMBERS ONLY 🎬
+          </div>
+          <p className="text-center text-xs mb-6 text-gray-500">
+            This is a private screening club for the most discerning bad movie enthusiasts.
+          </p>
+          
+          {!forgotPassword ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
+                style={{ borderColor: '#31394d' }}
+                required
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
+                style={{ borderColor: '#31394d' }}
+                required
+              />
+              <button
+                type="submit"
+                className="w-full py-2 rounded-lg text-white font-semibold hover:opacity-90"
+                style={{ backgroundColor: '#31394d' }}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setForgotPassword(true)}
+                className="w-full text-sm hover:underline"
+                style={{ color: '#009384' }}
+              >
+                Forgot Password?
               </button>
             </form>
-            <div style={{ textAlign: 'center', marginTop: '24px', color: '#6b7280' }}>
-              {authMode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-              <span onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')} style={{ color: '#009384', fontWeight: '600', cursor: 'pointer' }}>
-                {authMode === 'signin' ? 'Sign Up' : 'Sign In'}
-              </span>
-            </div>
-          </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
+                style={{ borderColor: '#31394d' }}
+                required
+              />
+              <button
+                type="submit"
+                className="w-full py-2 rounded-lg text-white font-semibold"
+                style={{ backgroundColor: '#31394d' }}
+              >
+                Send Reset Link
+              </button>
+              <button
+                type="button"
+                onClick={() => setForgotPassword(false)}
+                className="w-full text-sm hover:underline"
+                style={{ color: '#009384' }}
+              >
+                Back to Login
+              </button>
+            </form>
+          )}
         </div>
-      </>
+      </div>
     );
   }
-
+// MAIN APP RETURN
   return (
-    <>
-      <style>{styles}</style>
-      <div className="blob blob-1"></div>
-      <div className="blob blob-2"></div>
-      <div className="blob blob-3"></div>
-
-      <div className="header">
-        <div className="logo" onClick={() => navigateTo('home')}>Bad Movie Night</div>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <ul className="nav-menu">
-            <li><div className={`nav-link ${currentPage === 'home' ? 'active' : ''}`} onClick={() => navigateTo('home')}>Home</div></li>
-            <li><div className={`nav-link ${currentPage === 'upnext' ? 'active' : ''}`} onClick={() => navigateTo('upnext')}>Up Next</div></li>
-            <li><div className={`nav-link ${currentPage === 'leaderboard' ? 'active' : ''}`} onClick={() => navigateTo('leaderboard')}>Leaderboard</div></li>
-            <li><div className={`nav-link ${currentPage === 'profile' ? 'active' : ''}`} onClick={() => navigateTo('profile')}>Profile</div></li>
-            {isAdmin && <li><div className={`nav-link ${currentPage === 'admin' ? 'active' : ''}`} onClick={() => navigateTo('admin')}>Admin</div></li>}
-          </ul>
-          <button className="btn btn-secondary btn-small" onClick={handleSignOut}>Sign Out</button>
-          <div className="hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-            <span></span><span></span><span></span>
+    <div className="min-h-screen bg-gray-100">
+      {/* HEADER */}
+      <header className="shadow-md" style={{ backgroundColor: '#31394d' }}>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigateTo('home')} className="flex items-center gap-3 hover:opacity-80">
+              <Film size={32} style={{ color: '#009384' }} />
+              <h1 className="text-2xl md:text-3xl text-white" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>
+                Bad Movie Night
+              </h1>
+            </button>
           </div>
-        </nav>
-      </div>
+          
+          <button 
+            onClick={() => setShowMobileMenu(!showMobileMenu)} 
+            className="md:hidden text-white"
+          >
+            <Menu size={28} />
+          </button>
 
-      <div className={`mobile-menu ${mobileMenuOpen ? 'open' : ''}`}>
-        <div className="nav-link" onClick={() => navigateTo('home')}>Home</div>
-        <div className="nav-link" onClick={() => navigateTo('upnext')}>Up Next</div>
-        <div className="nav-link" onClick={() => navigateTo('leaderboard')}>Leaderboard</div>
-        <div className="nav-link" onClick={() => navigateTo('profile')}>Profile</div>
-        {isAdmin && <div className="nav-link" onClick={() => navigateTo('admin')}>Admin</div>}
-      </div>
+          <nav className="hidden md:flex items-center gap-6">
+            <button onClick={() => navigateTo('home')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace', fontWeight: page === 'home' ? 'bold' : 'normal' }}>Home</button>
+            <button onClick={() => navigateTo('leaderboard')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Leaderboard</button>
+            <button onClick={() => navigateTo('members')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Members</button>
+            <button onClick={() => navigateTo('buzz')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>The Buzz</button>
+            <button onClick={() => navigateTo('upnext')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Up Next</button>
+            <button onClick={() => navigateTo('profile', userProfile)} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Profile</button>
+            {isAdmin && <button onClick={() => navigateTo('admin')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Admin</button>}
+            <button onClick={handleLogout} className="text-white hover:opacity-80"><LogOut size={20} /></button>
+          </nav>
+        </div>
 
-      <div className="container">
-       // PASTE THIS AFTER THE CONTAINER DIV IN PART 1
+        {showMobileMenu && (
+          <div className="md:hidden bg-white border-t" style={{ borderColor: '#31394d' }}>
+            <nav className="flex flex-col">
+              <button onClick={() => navigateTo('home')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d', fontWeight: page === 'home' ? 'bold' : 'normal' }}>Home</button>
+              <button onClick={() => navigateTo('leaderboard')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Leaderboard</button>
+              <button onClick={() => navigateTo('members')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Members</button>
+              <button onClick={() => navigateTo('buzz')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>The Buzz</button>
+              <button onClick={() => navigateTo('upnext')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Up Next</button>
+              <button onClick={() => navigateTo('profile', userProfile)} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Profile</button>
+              {isAdmin && <button onClick={() => navigateTo('admin')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Admin</button>}
+              <button onClick={handleLogout} className="px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}><LogOut size={20} />Logout</button>
+            </nav>
+          </div>
+        )}
+      </header>
 
-        {currentPage === 'home' && (
-          <>
-            <div className="hero">
-              <h1 className="hero-title">The Archive</h1>
-              <p className="hero-subtitle">Every terrible masterpiece we've endured together</p>
-              {isAdmin && <button className="btn btn-primary" onClick={openAddFilm}>+ Add Film</button>}
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {page !== 'home' && (
+          <button 
+            onClick={goBack} 
+            className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            style={{ fontFamily: 'Courier New, monospace' }}
+          >
+            <ChevronLeft size={20} />
+            <span>Back</span>
+          </button>
+        )}
+
+        {/* HOME PAGE */}
+        {page === 'home' && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>BMN Screenings</h2>
+              {isAdmin && (
+                <button onClick={() => setShowAddFilm(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                  <Plus size={20} />Add Film
+                </button>
+              )}
             </div>
-
-            <div className="stats-grid">
-              <div className="stat-card" style={{ position: 'relative' }}>
-                <div className="stat-value">{films.length}</div>
-                <div className="stat-label">Total Films</div>
-              </div>
-              <div className="stat-card" style={{ position: 'relative' }}>
-                <div className="stat-value">
-                  {films.length > 0 ? (films.reduce((sum, f) => sum + parseFloat(calculateBMNScore(f)), 0) / films.length).toFixed(1) : 0}
-                </div>
-                <div className="stat-label">Avg Rating</div>
-              </div>
-              <div className="stat-card" style={{ position: 'relative' }}>
-                <div className="stat-value">{members.length}</div>
-                <div className="stat-label">Members</div>
-              </div>
-              <div className="stat-card" style={{ position: 'relative' }}>
-                <div className="stat-value">
-                  {films.reduce((sum, f) => sum + (parseInt(f.runtime) || 0), 0)}
-                </div>
-                <div className="stat-label">Minutes Watched</div>
-              </div>
-            </div>
-
-            <div className="movie-grid">
-              {films.map((film) => {
-                const isUpcoming = isUpcomingScreening(film);
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
+              {films.filter(f => f.type === 'bmn').map(film => {
+                const isUpcoming = film.isUpcoming || new Date(film.date) > new Date();
+                const displayImage = isUpcoming && film.eventPoster ? film.eventPoster : film.image;
+                
                 return (
-                  <div key={film.id} className={`movie-card ${isUpcoming ? 'upcoming' : ''}`} onClick={() => navigateTo('film', film)}>
-                    {isUpcoming && <div className="upcoming-badge">🎬 Upcoming</div>}
-                    <img src={isUpcoming ? film.eventPosterUrl || film.posterUrl : film.posterUrl} alt={film.title} className="movie-poster" />
-                    <div className="movie-info">
-                      <div className="movie-title">{film.title}</div>
-                      <div className="movie-meta">
-                        <span>{film.year}</span>
-                        {film.genre && <><span>•</span><span>{film.genre.split(',')[0]}</span></>}
+                  <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden relative">
+                    {isUpcoming && (
+                      <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1" style={{ fontFamily: 'Courier New, monospace' }}>
+                        <Calendar size={12} />
+                        UPCOMING
                       </div>
-                      {!isUpcoming && <div className="bmn-score">⭐ {calculateBMNScore(film)}</div>}
+                    )}
+                    <div className="relative" style={{ paddingBottom: '150%' }}>
+                      <img src={displayImage} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+                    </div>
+                    <div className="p-3">
+                      <h3 className="text-sm font-bold text-center mb-1 line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
+                      <p className="text-xs text-gray-600 text-center mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                        <span className="font-semibold">Screening Date:</span> {new Date(film.date).toLocaleDateString()}
+                      </p>
+                      {!isUpcoming && (
+                        <div className="flex justify-around items-center">
+                          <div className="text-center">
+                            <img src={getRTIcon(film.rtScore)} alt="RT" className="w-5 h-5 mx-auto mb-1" />
+                            <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
+                          </div>
+                          {film.popcornScore > 0 && (
+                            <div className="text-center">
+                              <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-5 h-5 mx-auto mb-1" />
+                              <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
+                            </div>
+                          )}
+                          <div className="text-center">
+                            <div className="text-lg mb-1">🎬</div>
+                            <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{film.bmnScore}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </>
-        )}
-
-        {currentPage === 'film' && selectedFilm && (
-          <>
-            <button className="btn btn-secondary" onClick={goBack} style={{ marginBottom: '24px' }}>← Back</button>
-            <div className="card">
-              <div className="film-header">
-                <img src={selectedFilm.posterUrl} alt={selectedFilm.title} className="film-poster-large" />
-                <div>
-                  <h1 style={{ fontSize: '40px', marginBottom: '16px', background: 'linear-gradient(135deg, #31394d 0%, #009384 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                    {selectedFilm.title}
-                  </h1>
-                  <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                    <span className="badge active">{selectedFilm.year}</span>
-                    {selectedFilm.genre && <span className="badge active">{selectedFilm.genre}</span>}
-                    {selectedFilm.runtime && <span className="badge active">{selectedFilm.runtime}</span>}
+            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Offsite Films</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {films.filter(f => f.type === 'offsite-film').map(film => (
+                <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
+                  <div className="relative" style={{ paddingBottom: '150%' }}>
+                    <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-                    <div>
-                      <div className="stat-label">BMN Score</div>
-                      <div className="stat-value" style={{ fontSize: '32px' }}>⭐ {calculateBMNScore(selectedFilm)}</div>
-                    </div>
-                    <div>
-                      <div className="stat-label">Screening Date</div>
-                      <div style={{ fontSize: '16px', fontWeight: '700', marginTop: '8px' }}>{formatDate(selectedFilm.screeningDate)}</div>
-                    </div>
-                  </div>
-                  {selectedFilm.plot && <p style={{ color: '#6b7280', lineHeight: '1.7', marginBottom: '20px' }}>{selectedFilm.plot}</p>}
-                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                    {!selectedFilm.votes?.some(v => v.memberId === user.uid) && (
-                      <button className="btn btn-primary" onClick={() => openVoteModal(selectedFilm)}>⭐ Rate & Review</button>
-                    )}
-                    {isAdmin && (
-                      <>
-                        <button className="btn btn-secondary" onClick={() => openEditFilm(selectedFilm)}>Edit</button>
-                        <button className="btn btn-danger" onClick={() => handleDeleteFilm(selectedFilm.id)}>Delete</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {selectedFilm.eventPosterUrl && (
-                <>
-                  <div className="divider"></div>
-                  <h2 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>Event Poster</h2>
-                  <img src={selectedFilm.eventPosterUrl} alt="Event Poster" style={{ width: '100%', maxWidth: '450px', borderRadius: '16px', boxShadow: '0 8px 30px rgba(0,0,0,0.12)' }} />
-                </>
-              )}
-
-              {selectedFilm.trailerUrl && getYouTubeEmbedUrl(selectedFilm.trailerUrl) && (
-                <>
-                  <div className="divider"></div>
-                  <h2 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>Trailer</h2>
-                  <div className="media-embed">
-                    <iframe src={getYouTubeEmbedUrl(selectedFilm.trailerUrl)} allowFullScreen></iframe>
-                  </div>
-                </>
-              )}
-
-              {selectedFilm.spotifyUrl && getSpotifyEmbedUrl(selectedFilm.spotifyUrl) && (
-                <>
-                  <div className="divider"></div>
-                  <h2 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>Soundtrack Playlist</h2>
-                  <div className="media-embed spotify-embed">
-                    <iframe src={getSpotifyEmbedUrl(selectedFilm.spotifyUrl)} allowFullScreen allow="encrypted-media"></iframe>
-                  </div>
-                </>
-              )}
-
-              <div className="divider"></div>
-              <h2 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>
-                Member Reviews ({selectedFilm.votes?.length || 0})
-              </h2>
-
-              {selectedFilm.votes && selectedFilm.votes.length > 0 ? (
-                <div style={{ display: 'grid', gap: '16px' }}>
-                  {selectedFilm.votes.map((vote, idx) => {
-                    const member = getMemberById(vote.memberId);
-                    return (
-                      <div key={idx} className="submission-card">
-                        <div className="submission-header">
-                          <div className="submitter">
-                            <img src={member?.photoURL || `https://i.pravatar.cc/150?u=${vote.memberId}`} className="submitter-avatar" />
-                            <div>
-                              <div style={{ fontWeight: '700' }}>{vote.memberName}</div>
-                              <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                                {vote.createdAt?.toDate ? formatDate(vote.createdAt) : ''}
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ fontSize: '24px', fontWeight: '900', color: '#009384' }}>⭐ {vote.rating}</div>
-                        </div>
-                        {vote.review && <p style={{ color: '#6b7280', marginBottom: '12px', lineHeight: '1.6' }}>{vote.review}</p>}
-                        {vote.badges && vote.badges.length > 0 && (
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {vote.badges.map((badge, i) => (
-                              <span key={i} className="badge active" style={{ fontSize: '13px' }}>{badge}</span>
-                            ))}
-                          </div>
-                        )}
+                  <div className="p-3">
+                    <h3 className="text-sm font-bold text-center mb-1 line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
+                    <p className="text-xs text-gray-600 text-center mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                      <span className="font-semibold">Screening Date:</span> {new Date(film.date).toLocaleDateString()}
+                    </p>
+                    <div className="flex justify-around items-center">
+                      <div className="text-center">
+                        <img src={getRTIcon(film.rtScore)} alt="RT" className="w-5 h-5 mx-auto mb-1" />
+                        <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p style={{ color: '#6b7280', fontStyle: 'italic' }}>No reviews yet. Be the first!</p>
-              )}
-            </div>
-          </>
-        )}
-
-        {currentPage === 'upnext' && (
-          <>
-            <div className="hero">
-              <h1 className="hero-title">Up Next</h1>
-              <p className="hero-subtitle">Vote for the next masterpiece of disaster</p>
-              <button className="btn btn-primary" onClick={() => setShowAddSubmission(true)}>+ Submit Film</button>
-            </div>
-
-            {upcomingScreenings.length > 0 && (
-              <div className="card" style={{ marginBottom: '32px' }}>
-                <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>
-                  Scheduled Screenings
-                </h2>
-                <div style={{ display: 'grid', gap: '16px' }}>
-                  {upcomingScreenings.map((screening) => (
-                    <div key={screening.id} className="submission-card" style={{ borderLeftColor: '#009384' }}>
-                      <div className="submission-header">
-                        <div>
-                          <div style={{ fontWeight: '700', fontSize: '18px' }}>{screening.title || 'Mystery Movie 🎬'}</div>
-                          <div style={{ fontSize: '14px', color: '#6b7280', marginTop: '4px' }}>
-                            Screening Date: {formatDate(screening.date)}
-                          </div>
+                      {film.popcornScore > 0 && (
+                        <div className="text-center">
+                          <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-5 h-5 mx-auto mb-1" />
+                          <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
                         </div>
-                        {isAdmin && (
-                          <button className="btn btn-danger btn-small" onClick={() => handleDeleteScreening(screening.id)}>
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                      {screening.eventPosterUrl && (
-                        <img src={screening.eventPosterUrl} alt="Event Poster" style={{ width: '200px', borderRadius: '12px', marginTop: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }} />
                       )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="card">
-              <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>
-                Current Submissions
-              </h2>
-
-              {submissions.length > 0 ? (
-                submissions.map((submission) => {
-                  const hasUpvoted = submission.upvotes?.includes(user.uid);
-                  const hasDownvoted = submission.downvotes?.includes(user.uid);
-                  const upvoteCount = submission.upvotes?.length || 0;
-                  const downvoteCount = submission.downvotes?.length || 0;
-
-                  return (
-                    <div key={submission.id} className="submission-card">
-                      <div className="submission-header">
-                        <div className="submitter">
-                          <img src={getMemberById(submission.submittedBy)?.photoURL || `https://i.pravatar.cc/150?u=${submission.submittedBy}`} className="submitter-avatar" />
-                          <div>
-                            <div style={{ fontWeight: '700', fontSize: '18px' }}>{submission.title}</div>
-                            <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                              Submitted by {submission.submittedByName}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <div className="vote-buttons">
-                            <button
-                              className={`vote-btn ${hasUpvoted ? 'voted' : ''}`}
-                              onClick={() => handleVoteSubmission(submission.id, 'up')}
-                              title={submission.upvotes?.map(id => getMemberById(id)?.displayName).filter(Boolean).join(', ')}
-                            >
-                              👍 {upvoteCount}
-                            </button>
-                            <button
-                              className={`vote-btn ${hasDownvoted ? 'voted' : ''}`}
-                              onClick={() => handleVoteSubmission(submission.id, 'down')}
-                              title={submission.downvotes?.map(id => getMemberById(id)?.displayName).filter(Boolean).join(', ')}
-                            >
-                              👎 {downvoteCount}
-                            </button>
-                          </div>
-                          {isAdmin && (
-                            <button className="btn btn-danger btn-small" onClick={() => handleDeleteSubmission(submission.id)}>
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '20px', marginTop: '16px' }}>
-                        {submission.posterUrl && (
-                          <img src={submission.posterUrl} alt={submission.title} style={{ width: '100%', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }} />
-                        )}
-                        <div>
-                          {submission.reason && (
-                            <p style={{ color: '#6b7280', marginBottom: '12px', lineHeight: '1.6' }}>{submission.reason}</p>
-                          )}
-                          {submission.year && (
-                            <div style={{ marginBottom: '16px' }}>
-                              <span className="badge inactive">{submission.year}</span>
-                            </div>
-                          )}
-                          {submission.trailerUrl && getYouTubeEmbedUrl(submission.trailerUrl) && (
-                            <div className="media-embed">
-                              <iframe src={getYouTubeEmbedUrl(submission.trailerUrl)} allowFullScreen></iframe>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="comments-section">
-                        <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '12px' }}>
-                          Comments ({submission.comments?.length || 0})
-                        </h3>
-                        {submission.comments && submission.comments.length > 0 && (
-                          <div style={{ marginBottom: '12px' }}>
-                            {submission.comments.map((comment, idx) => (
-                              <div key={idx} className="comment">
-                                <div className="comment-author">{comment.authorName}</div>
-                                <div style={{ color: '#6b7280', fontSize: '14px' }}>{comment.text}</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Add a comment..."
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter' && e.target.value.trim()) {
-                              handleAddComment(submission.id, e.target.value);
-                              e.target.value = '';
-                            }
-                          }}
-                        />
+                      <div className="text-center">
+                        <div className="text-lg mb-1">🎬</div>
+                        <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{film.bmnScore}</p>
                       </div>
                     </div>
-                  );
-                })
-              ) : (
-                <p style={{ color: '#6b7280', fontStyle: 'italic', textAlign: 'center', padding: '40px' }}>
-                  No submissions yet. Be the first!
-                </p>
-              )}
-            </div>
-          </>
-        )}
-
-        {currentPage === 'leaderboard' && (
-          <>
-            <div className="hero">
-              <h1 className="hero-title">Hall of Shame</h1>
-              <p className="hero-subtitle">Ranking our connoisseurs of cinematic catastrophe</p>
-            </div>
-
-            <div className="card">
-              {getLeaderboard().map((member, index) => (
-                <div key={member.id} className="leaderboard-item">
-                  <div className={`rank rank-${index + 1 <= 3 ? index + 1 : ''}`}>{index + 1}</div>
-                  <img src={member.photoURL || `https://i.pravatar.cc/150?u=${member.id}`} className="member-avatar" />
-                  <div className="member-info">
-                    <div className="member-name">{member.displayName}</div>
-                    <div className="member-stats">
-                      <span className="stat-badge">🎬 {member.filmsWatched}</span>
-                      <span className="stat-badge">⭐ {member.avgRating}</span>
-                      <span className="stat-badge">📝 {member.reviewsGiven}</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: '28px', fontWeight: '900', color: '#009384', fontFamily: 'Courier New, monospace' }}>
-                    {member.points}
                   </div>
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
 
-        {currentPage === 'profile' && currentMember && (
-          <>
-            <div className="card">
-              <div style={{ display: 'flex', gap: '32px', alignItems: 'start', marginBottom: '32px', flexWrap: 'wrap' }}>
-                <img
-                  src={currentMember.photoURL || `https://i.pravatar.cc/200?u=${user.uid}`}
-                  style={{ width: '140px', height: '140px', borderRadius: '50%', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', border: '5px solid white' }}
-                />
-                <div style={{ flex: 1 }}>
-                  <h1 style={{ fontSize: '32px', fontWeight: '900', marginBottom: '8px', fontFamily: 'Courier New, monospace' }}>
-                    {currentMember.displayName}
-                  </h1>
-                  <p style={{ color: '#6b7280', fontSize: '15px', marginBottom: '16px' }}>
-                    {currentMember.bio || 'No bio yet'}
-                  </p>
-                  <button className="btn btn-primary" onClick={openEditProfile}>Edit Profile</button>
+        {/* MEMBERS PAGE */}
+        {page === 'members' && (
+          <div>
+            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Members</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {members.map(member => (
+                <div key={member.id} onClick={() => navigateTo('profile', member)} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow text-center">
+                  <img src={member.image} alt={member.name} className="w-32 h-32 rounded-full mx-auto mb-4 object-cover" />
+                  <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{member.name}</h3>
+                  <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.title}</p>
+                  <div className="flex justify-center gap-1 flex-wrap">
+                    {member.emojis?.slice(0, 10).map((emoji, i) => <span key={i} className="text-2xl">{emoji}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+{/* PROFILE PAGE */}
+        {page === 'profile' && selectedMember && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            {editingProfile && editingProfile.id === selectedMember.id ? (
+              <div className="space-y-4">
+                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Profile</h2>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Profile Image</label>
+                  <img src={editingProfile.image} alt="Profile" className="w-32 h-32 rounded-full object-cover mb-2" />
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'members')} className="block" />
+                    <div className="text-sm text-gray-500">or</div>
+                    <input 
+                      type="url" 
+                      placeholder="Image URL" 
+                      value={editingProfile.image} 
+                      onChange={(e) => setEditingProfile({...editingProfile, image: e.target.value})} 
+                      className="w-full px-4 py-2 border rounded-lg" 
+                      style={{ borderColor: '#31394d' }} 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Name</label>
+                  <input type="text" value={editingProfile.name} onChange={(e) => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title</label>
+                  <input type="text" value={editingProfile.title} onChange={(e) => setEditingProfile({...editingProfile, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Bio</label>
+                  <textarea value={editingProfile.bio} onChange={(e) => setEditingProfile({...editingProfile, bio: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveProfile} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
+                    <Save size={16} className="inline mr-2" />{uploadingImage ? 'Uploading...' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditingProfile(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>
+                    <X size={16} className="inline mr-2" />Cancel
+                  </button>
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="flex flex-col md:flex-row gap-8 mb-8">
+                  <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-full object-cover mx-auto md:mx-0" />
+                  <div className="flex-1">
+                    <h2 className="text-3xl md:text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
+                    <p className="text-xl mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{selectedMember.title}</p>
+                    <p className="text-gray-700 mb-4">{selectedMember.bio}</p>
+                    <div className="flex gap-2 flex-wrap mb-4">
+                      {selectedMember.emojis?.map((emoji, i) => {
+                        const film = getFilmForBadge(emoji, selectedMember.emojis);
+                        return (
+                          <div key={i} className="relative group">
+                            <span 
+                              className="text-3xl cursor-pointer transition-transform hover:scale-125"
+                              onClick={() => film && navigateTo('film', film)}
+                            >
+                              {emoji}
+                            </span>
+                            {film && (
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10" style={{ fontFamily: 'Courier New, monospace' }}>
+                                {film.title}<br />
+                                {new Date(film.date).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {userProfile && userProfile.id === selectedMember.id && isAdmin && (
+                      <button onClick={() => setEditingProfile(selectedMember)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}>
+                        <Edit size={16} className="inline mr-2" />Edit Profile
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {userProfile && userProfile.id === selectedMember.id && pendingVotes.length > 0 && (
+                  <div className="mb-8 p-6 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
+                    <h3 className="text-2xl mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
+                      ⚠️ Pending Reviews
+                    </h3>
+                    <p className="mb-4 text-gray-700">You need to review the following films:</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {pendingVotes.map(film => (
+                        <div 
+                          key={film.id} 
+                          onClick={() => navigateTo('film', film)}
+                          className="bg-white rounded-lg shadow cursor-pointer hover:shadow-lg transition-shadow overflow-hidden"
+                        >
+                          <div className="relative" style={{ paddingBottom: '150%' }}>
+                            <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+                          </div>
+                          <div className="p-2">
+                            <p className="text-xs font-bold text-center line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Recent Reviews</h3>
+                <div className="space-y-4">
+                  {buzzFeed.filter(item => item.memberId === selectedMember.id && item.type === 'review').slice(0, 10).map(review => (
+                    <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{review.filmTitle}</h4>
+                        <span className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-4 mb-2">
+                        <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{review.score}</span>
+                        <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                      </div>
+                      <p className="text-gray-700">{review.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
-              <div className="stats-grid">
-                <div className="stat-card" style={{ position: 'relative' }}>
-                  <div className="stat-value">{getMemberStats(user.uid).filmsWatched}</div>
-                  <div className="stat-label">Films Watched</div>
+        {/* FILM PAGE */}
+        {page === 'film' && selectedFilm && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            {editingFilm && editingFilm.id === selectedFilm.id ? (
+              <div className="space-y-4">
+                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Film</h2>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title</label>
+                  <input type="text" value={editingFilm.title} onChange={(e) => setEditingFilm({...editingFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
-                <div className="stat-card" style={{ position: 'relative' }}>
-                  <div className="stat-value">{getMemberStats(user.uid).avgRating}</div>
-                  <div className="stat-label">Avg Rating</div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster Image</label>
+                  {editingFilm.image && <img src={editingFilm.image} alt="Poster" className="w-32 h-48 object-cover mb-2 rounded" />}
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'films', 'default')} className="block" />
+                    <div className="text-sm text-gray-500">or</div>
+                    <input type="url" placeholder="Image URL" value={editingFilm.image} onChange={(e) => setEditingFilm({...editingFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  </div>
                 </div>
-                <div className="stat-card" style={{ position: 'relative' }}>
-                  <div className="stat-value">{getMemberStats(user.uid).reviewsGiven}</div>
-                  <div className="stat-label">Reviews</div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster (for upcoming screenings)</label>
+                  {editingFilm.eventPoster && <img src={editingFilm.eventPoster} alt="Event Poster" className="w-32 h-48 object-cover mb-2 rounded" />}
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'films', 'eventPoster')} className="block" />
+                    <div className="text-sm text-gray-500">or</div>
+                    <input type="url" placeholder="Event Poster URL" value={editingFilm.eventPoster || ''} onChange={(e) => setEditingFilm({...editingFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  </div>
                 </div>
-                <div className="stat-card" style={{ position: 'relative' }}>
-                  <div className="stat-value">{getMemberStats(user.uid).badges.length}</div>
-                  <div className="stat-label">Badges</div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</label>
+                  <input type="number" value={editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
+                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
+                  <input type="url" value={editingFilm.trailer || ''} onChange={(e) => setEditingFilm({...editingFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date</label>
+                  <input type="date" value={editingFilm.date} onChange={(e) => setEditingFilm({...editingFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                    <input type="checkbox" checked={editingFilm.isUpcoming} onChange={(e) => setEditingFilm({...editingFilm, isUpcoming: e.target.checked})} />
+                    <span className="font-semibold">Mark as Upcoming Screening</span>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveFilm} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                    <Save size={16} className="inline mr-2" />Save
+                  </button>
+                  <button onClick={() => setEditingFilm(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>
+                    <X size={16} className="inline mr-2" />Cancel
+                  </button>
+                  <button onClick={() => handleDeleteFilm(editingFilm.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>
+                    <Trash2 size={16} className="inline mr-2" />Delete Film
+                  </button>
                 </div>
               </div>
-
-              {getUnreviewedFilms(user.uid).length > 0 && (
-                <>
-                  <div className="divider"></div>
-                  <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '16px', fontFamily: 'Courier New, monospace' }}>
-                    ⚠️ Unreviewed Films
-                  </h2>
-                  <p style={{ color: '#6b7280', marginBottom: '16px' }}>
-                    You watched these but haven't reviewed them yet!
-                  </p>
-                  <div className="movie-grid">
-                    {getUnreviewedFilms(user.uid).map((film) => (
-                      <div key={film.id} className="movie-card" onClick={() => navigateTo('film', film)}>
-                        <img src={film.posterUrl} alt={film.title} className="movie-poster" />
-                        <div className="movie-info">
-                          <div className="movie-title">{film.title}</div>
-                          <div className="movie-meta"><span>{film.year}</span></div>
+            ) : (
+              <>
+                <div className="grid md:grid-cols-2 gap-6 mb-8">
+                  <div className="space-y-4">
+                    <div className="relative w-full max-w-xs mx-auto" style={{ paddingBottom: '150%' }}>
+                      <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
+                    </div>
+                    {selectedFilm.eventPoster && selectedFilm.eventPoster !== selectedFilm.image && (
+                      <div className="relative w-full max-w-xs mx-auto" style={{ paddingBottom: '150%' }}>
+                        <img src={selectedFilm.eventPoster} alt="Event Poster" className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <h2 className="text-3xl md:text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
+                    {selectedFilm.subtitle && <p className="text-xl mb-4 text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.subtitle}</p>}
+                    <p className="text-gray-600 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>
+                      <span className="font-semibold">Screening Date:</span> {new Date(selectedFilm.date).toLocaleDateString()}
+                    </p>
+                    
+                    {selectedFilm.trailer && (
+                      <div className="mb-6 aspect-video">
+                        <iframe
+                          width="100%"
+                          height="100%"
+                          src={`https://www.youtube.com/embed/${extractYouTubeId(selectedFilm.trailer)}`}
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          className="rounded-lg"
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-8 mb-6">
+                      <div className="text-center">
+                        <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
+                        <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.rtScore}%</p>
+                        <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Tomatometer</p>
+                      </div>
+                      {selectedFilm.popcornScore > 0 && (
+                        <div className="text-center">
+                          <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
+                          <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.popcornScore}%</p>
+                          <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter</p>
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <div className="text-4xl mb-2">🎬</div>
+                        <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{selectedFilm.bmnScore}</p>
+                        <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>BMN Score</p>
+                      </div>
+                    </div>
+                    
+                    {tmdbData && (
+                      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                        <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Movie Info</h4>
+                        {tmdbData.overview && <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>}
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          {tmdbData.release_date && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
+                          {tmdbData.runtime && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
+                          {tmdbData.genres && tmdbData.genres.length > 0 && <div className="col-span-2" style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}</div>}
+                          {tmdbData.budget && tmdbData.budget > 0 && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M</div>}
+                          {tmdbData.revenue && tmdbData.revenue > 0 && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M</div>}
                         </div>
                       </div>
-                    ))}
+                    )}
+                    {searchingTmdb && !tmdbData && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center"><p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Loading movie info from TMDB...</p></div>}
+                    {isAdmin && (
+                      <button onClick={() => setEditingFilm(selectedFilm)} className="px-4 py-2 rounded-lg text-white font-semibold mb-4" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}>
+                        <Edit size={16} className="inline mr-2" />Edit Film
+                      </button>
+                    )}
                   </div>
-                </>
-              )}
-
-              {getMemberStats(user.uid).badges.length > 0 && (
-                <>
-                  <div className="divider"></div>
-                  <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '16px', fontFamily: 'Courier New, monospace' }}>
-                    🏆 Your Badges
-                  </h2>
-                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                    {[...new Set(getMemberStats(user.uid).badges)].map((badge, idx) => {
-                      const film = getFilmByBadge(badge, user.uid);
-                      return (
-                        <span
-                          key={idx}
-                          className="badge active"
-                          onClick={() => film && navigateTo('film', film)}
-                          title={film ? `${film.title} - Screening Date: ${formatDate(film.screeningDate)}` : badge}
-                          style={{ cursor: 'pointer', fontSize: '15px', padding: '10px 16px' }}
-                        >
-                          {badge}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              <div className="divider"></div>
-              <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '16px', fontFamily: 'Courier New, monospace' }}>
-                Recent Reviews
-              </h2>
-              {films
-                .filter(f => f.votes?.some(v => v.memberId === user.uid))
-                .slice(0, 10)
-                .map((film) => {
-                  const vote = film.votes.find(v => v.memberId === user.uid);
-                  return (
-                    <div key={film.id} className="submission-card" onClick={() => navigateTo('film', film)} style={{ cursor: 'pointer' }}>
-                      <div style={{ display: 'flex', gap: '16px' }}>
-                        <img src={film.posterUrl} style={{ width: '80px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                            <div style={{ fontWeight: '700', fontSize: '16px', fontFamily: 'Courier New, monospace' }}>
-                              {film.title}
+                </div>
+{/* IMPROVED VOTING SECTION - MORE COMPACT */}
+                {!selectedFilm.isUpcoming && (
+                  <>
+                    <div className="mb-8 bg-gray-50 rounded-lg p-6 max-w-3xl mx-auto">
+                      <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Score (0-100)</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="range" 
+                              min="0" 
+                              max="100" 
+                              value={userVote.score} 
+                              onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })} 
+                              className="flex-1" 
+                            />
+                            <span className="text-3xl font-bold w-16 text-center" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{userVote.score}</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Rating</label>
+                          <div className="flex gap-2">
+                            {['neutral', 'down', 'double-down'].map(t => (
+                              <button 
+                                key={t} 
+                                onClick={() => setUserVote({ ...userVote, thumbs: t })} 
+                                className={`flex-1 px-4 py-2 rounded-lg transition-all ${userVote.thumbs === t ? 'ring-2 ring-offset-2' : ''}`} 
+                                style={{ 
+                                  fontFamily: 'Courier New, monospace',
+                                  backgroundColor: userVote.thumbs === t ? '#009384' : '#e5e7eb', 
+                                  color: userVote.thumbs === t ? 'white' : 'black',
+                                  ringColor: '#009384'
+                                }}
+                              >
+                                {t === 'neutral' ? '👍 Neutral' : t === 'down' ? '👎 Down' : '👎👎 Double Down'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Review (Optional)</label>
+                          <textarea 
+                            value={userVote.text} 
+                            onChange={(e) => setUserVote({ ...userVote, text: e.target.value })} 
+                            className="w-full px-4 py-2 border rounded-lg" 
+                            style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} 
+                            rows="3" 
+                            placeholder="Share your thoughts..." 
+                          />
+                        </div>
+                        
+                        <button onClick={() => handleVoteSubmit(selectedFilm.id)} className="w-full py-3 rounded-lg text-white font-semibold text-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                          Submit Vote
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>All Reviews</h3>
+                      <div className="space-y-4">
+                        {buzzFeed.filter(item => item.filmId === selectedFilm.id && item.type === 'review').map(review => (
+                          <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{review.memberName}</h4>
+                              <div className="flex items-center gap-4">
+                                <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{review.score}</span>
+                                <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                                {isAdmin && (
+                                  <button onClick={() => handleDeleteBuzzItem(review.id)} className="text-red-500 hover:text-red-700">
+                                    <Trash2 size={18} />
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            <div style={{ fontSize: '20px', fontWeight: '900', color: '#009384' }}>
-                              ⭐ {vote.rating}
+                            <p className="text-gray-700 mb-2">{review.text}</p>
+                            <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
+                              <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
+                              <span style={{ fontFamily: 'Courier New, monospace' }}>{(review.likes || []).length}</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* BUZZ PAGE */}
+        {page === 'buzz' && (
+          <div>
+            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>The Buzz</h2>
+            <div className="space-y-4">
+              {buzzFeed.map(item => (
+                <div key={item.id} className="bg-white rounded-lg shadow-lg p-6">
+                  {item.type === 'review' && (
+                    <>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{item.memberName} reviewed {item.filmTitle}</h3>
+                          <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{item.timestamp?.toDate ? new Date(item.timestamp.toDate()).toLocaleDateString() : ''}</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{item.score}</span>
+                          <span className="text-2xl">{item.thumbs === 'down' ? '👎' : item.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
+                          {isAdmin && (
+                            <button onClick={() => handleDeleteBuzzItem(item.id)} className="text-red-500 hover:text-red-700">
+                              <Trash2 size={18} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-gray-700 mb-4">{item.text}</p>
+                      <div className="flex gap-4">
+                        <button onClick={() => handleLikeBuzzItem(item.id, item.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
+                          <Heart size={20} fill={(item.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(item.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
+                          <span style={{ fontFamily: 'Courier New, monospace' }}>{(item.likes || []).length}</span>
+                        </button>
+                        <button onClick={() => setReplyingTo(replyingTo === item.id ? null : item.id)} className="flex items-center gap-2 text-gray-600 hover:opacity-70" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          <MessageCircle size={20} />Reply
+                        </button>
+                      </div>
+                      {replyingTo === item.id && (
+                        <div className="mt-4 flex gap-2">
+                          <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write a reply..." className="flex-1 px-4 py-2 border rounded-lg" style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} />
+                          <button onClick={() => handleReplyToBuzz(item.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Send</button>
+                        </div>
+                      )}
+                      {buzzFeed.filter(reply => reply.type === 'reply' && reply.replyTo === item.id).map(reply => (
+                        <div key={reply.id} className="ml-8 mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{reply.memberName}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                              {isAdmin && (
+                                <button onClick={() => handleDeleteBuzzItem(reply.id)} className="text-red-500 hover:text-red-700">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </div>
                           </div>
-                          {vote.review && (
-                            <p style={{ color: '#6b7280', fontSize: '14px', lineHeight: '1.5' }}>{vote.review}</p>
+                          <p className="text-gray-700">{reply.text}</p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* UP NEXT PAGE WITH VOTER VISIBILITY */}
+        {page === 'upnext' && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Up Next</h2>
+              <button onClick={() => setShowSubmitMovie(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                <Plus size={20} />Submit Movie
+              </button>
+            </div>
+            <div className="space-y-6">
+              {submissions.map(sub => {
+                const yesVotes = Object.entries(sub.votes || {}).filter(([_, v]) => v === 'yes');
+                const noVotes = Object.entries(sub.votes || {}).filter(([_, v]) => v === 'no');
+                const totalVotes = yesVotes.length + noVotes.length;
+                const youtubeId = extractYouTubeId(sub.youtubeLink);
+                const comments = submissionComments[sub.id] || [];
+                
+                return (
+                  <div key={sub.id} className="bg-white rounded-lg shadow-lg p-6">
+                    <div className="grid md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        {sub.image && <img src={sub.image} alt={sub.title} className="w-full h-auto object-cover rounded mb-4" />}
+                        <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{sub.title}</h3>
+                        <p className="text-sm text-gray-600 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>Submitted by: {sub.submittedBy}</p>
+                        {sub.description && <p className="text-gray-700 mb-4">{sub.description}</p>}
+                        {isAdmin && (
+                          <button 
+                            onClick={() => handleDeleteSubmission(sub.id)} 
+                            className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 flex items-center gap-2"
+                            style={{ fontFamily: 'Courier New, monospace' }}
+                          >
+                            <Trash2 size={16} />
+                            Delete Submission
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        {youtubeId && (
+                          <div className="mb-4 aspect-video">
+                            <iframe
+                              width="100%"
+                              height="100%"
+                              src={`https://www.youtube.com/embed/${youtubeId}`}
+                              frameBorder="0"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              className="rounded"
+                            />
+                          </div>
+                        )}
+                        <div className="mt-4">
+                          <div className="flex justify-between text-sm mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                            <span style={{ color: '#009384' }}>👍 Yes: {yesVotes.length}</span>
+                            <span className="text-red-500">👎 No: {noVotes.length}</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                            <div className="h-2 rounded-full" style={{ width: `${totalVotes > 0 ? (yesVotes.length / totalVotes) * 100 : 0}%`, backgroundColor: '#009384' }} />
+                          </div>
+                          
+                          {/* SHOW WHO VOTED YES AND NO */}
+                          <div className="mb-4 space-y-2">
+                            {yesVotes.length > 0 && (
+                              <div className="p-3 bg-green-50 rounded-lg">
+                                <p className="text-sm font-semibold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Voted Yes:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {yesVotes.map(([memberId]) => {
+                                    const member = members.find(m => m.id === memberId);
+                                    return member ? (
+                                      <div key={memberId} className="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-sm">
+                                        <img src={member.image} alt={member.name} className="w-6 h-6 rounded-full object-cover" />
+                                        <span className="text-xs" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
+                                      </div>
+                                    ) : null;
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {noVotes.length > 0 && (
+                              <div className="p-3 bg-red-50 rounded-lg">
+                                <p className="text-sm font-semibold mb-2 text-red-600" style={{ fontFamily: 'Courier New, monospace' }}>Voted No:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {noVotes.map(([memberId]) => {
+                                    const member = members.find(m => m.id === memberId);
+                                    return member ? (
+                                      <div key={memberId} className="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-sm">
+                                        <img src={member.image} alt={member.name} className="w-6 h-6 rounded-full object-cover" />
+                                        <span className="text-xs" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
+                                      </div>
+                                    ) : null;
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {!sub.votes?.[userProfile?.id] && (
+                            <div className="flex gap-2 mt-4">
+                              <button onClick={() => handleVoteOnSubmission(sub.id, 'yes')} className="flex-1 px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Yes</button>
+                              <button onClick={() => handleVoteOnSubmission(sub.id, 'no')} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>No</button>
+                            </div>
                           )}
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-            </div>
-          </>
-        )}
-
-        {currentPage === 'admin' && isAdmin && (
-          <>
-            <div className="hero">
-              <h1 className="hero-title">Admin Panel</h1>
-              <p className="hero-subtitle">Manage everything</p>
-            </div>
-
-            <div className="card">
-              <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>
-                Quick Actions
-              </h2>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" onClick={openAddFilm}>+ Add Film</button>
-                <button className="btn btn-primary" onClick={() => setShowAddScreening(true)}>+ Schedule Screening</button>
-              </div>
-            </div>
-
-            <div className="card">
-              <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '24px', fontFamily: 'Courier New, monospace' }}>
-                All Films ({films.length})
-              </h2>
-              <div style={{ display: 'grid', gap: '12px' }}>
-                {films.map((film) => (
-                  <div key={film.id} className="submission-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: '700', fontSize: '16px' }}>{film.title}</div>
-                        <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                          Screening Date: {formatDate(film.screeningDate)} • {film.votes?.length || 0} reviews
+                    
+                    <div className="mt-6 pt-6 border-t" style={{ borderColor: '#31394d' }}>
+                      <h4 className="font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Comments ({comments.length})</h4>
+                      <div className="space-y-3 mb-4">
+                        {comments.map(comment => (
+                          <div key={comment.id} className="p-3 bg-gray-50 rounded-lg">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-semibold text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{comment.memberName}</span>
+                              <span className="text-xs text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{comment.timestamp?.toDate ? new Date(comment.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                            </div>
+                            <p className="text-gray-700 text-sm">{comment.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {commentingOn === sub.id ? (
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={commentText} 
+                            onChange={(e) => setCommentText(e.target.value)} 
+                            placeholder="Add a comment..." 
+                            className="flex-1 px-4 py-2 border rounded-lg" 
+                            style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} 
+                          />
+                          <button onClick={() => handleCommentOnSubmission(sub.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Send</button>
+                          <button onClick={() => setCommentingOn(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
                         </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-secondary btn-small" onClick={() => { setSelectedFilm(film); openEditFilm(film); }}>
-                          Edit
+                      ) : (
+                        <button onClick={() => setCommentingOn(sub.id)} className="text-sm flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          <MessageCircle size={16} />Add comment
                         </button>
-                        <button className="btn btn-danger btn-small" onClick={() => handleDeleteFilm(film.id)}>
-                          Delete
-                        </button>
-                      </div>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          </>
+          </div>
         )}
-      </div>
-
-      {/* MODALS */}
-      {showAddFilm && (
-        <div className="modal-overlay" onClick={() => setShowAddFilm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Add Film</h2>
-              <button className="modal-close" onClick={() => setShowAddFilm(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Search TMDB</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Search movies..."
-                  value={tmdbSearch}
-                  onChange={(e) => setTmdbSearch(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && searchTMDB(tmdbSearch)}
-                />
-                {tmdbResults.length > 0 && (
-                  <div className="tmdb-results">
-                    {tmdbResults.map((movie) => (
-                      <div key={movie.id} className="tmdb-result" onClick={() => selectTMDBMovie(movie)}>
-                        {movie.poster_path && (
-                          <img src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`} className="tmdb-poster" />
-                        )}
-                        <div className="tmdb-info">
-                          <div className="tmdb-title">{movie.title}</div>
-                          <div className="tmdb-year">{movie.release_date?.split('-')[0]}</div>
+{/* LEADERBOARD PAGE */}
+        {page === 'leaderboard' && (
+          <div>
+            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Leaderboards</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="text-4xl">🏅</div>
+                  <h3 className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Most Badges</h3>
+                </div>
+                <div className="space-y-3">
+                  {members.sort((a, b) => (b.emojis?.length || 0) - (a.emojis?.length || 0)).map((member, i) => (
+                    <div key={member.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => navigateTo('profile', member)}>
+                      <div className="flex items-center gap-3 flex-1">
+                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: i < 3 ? '#FFD700' : '#31394d' }}>#{i + 1}</span>
+                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full object-cover" />
+                        <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.emojis?.length || 0}</span>
+                        <div className="flex">
+                          {member.emojis?.slice(0, 3).map((emoji, j) => <span key={j} className="text-lg">{emoji}</span>)}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  ))}
+                </div>
               </div>
-
-              <form onSubmit={handleAddFilm}>
-                <div className="form-group">
-                  <label className="form-label">Title *</label>
-                  <input type="text" className="form-input" value={filmForm.title} onChange={(e) => setFilmForm({ ...filmForm, title: e.target.value })} required />
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="text-4xl">📝</div>
+                  <h3 className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Most Reviews</h3>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div className="form-group">
-                    <label className="form-label">Year</label>
-                    <input type="text" className="form-input" value={filmForm.year} onChange={(e) => setFilmForm({ ...filmForm, year: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Runtime</label>
-                    <input type="text" className="form-input" value={filmForm.runtime} onChange={(e) => setFilmForm({ ...filmForm, runtime: e.target.value })} />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Genre</label>
-                  <input type="text" className="form-input" value={filmForm.genre} onChange={(e) => setFilmForm({ ...filmForm, genre: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Plot</label>
-                  <textarea className="form-textarea" value={filmForm.plot} onChange={(e) => setFilmForm({ ...filmForm, plot: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Screening Date *</label>
-                  <input type="date" className="form-input" value={filmForm.screeningDate} onChange={(e) => setFilmForm({ ...filmForm, screeningDate: e.target.value })} required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Poster URL</label>
-                  <input type="url" className="form-input" value={filmForm.posterUrl} onChange={(e) => setFilmForm({ ...filmForm, posterUrl: e.target.value })} />
-                  <div className="upload-area" style={{ marginTop: '12px' }}>
-                    <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e.target.files[0], 'posterUrl', setFilmForm)} style={{ display: 'none' }} id="poster-upload" />
-                    <label htmlFor="poster-upload" className="btn btn-secondary btn-small">Upload</label>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Event Poster URL</label>
-                  <input type="url" className="form-input" value={filmForm.eventPosterUrl} onChange={(e) => setFilmForm({ ...filmForm, eventPosterUrl: e.target.value })} />
-                  <div className="upload-area" style={{ marginTop: '12px' }}>
-                    <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e.target.files[0], 'eventPosterUrl', setFilmForm)} style={{ display: 'none' }} id="event-upload" />
-                    <label htmlFor="event-upload" className="btn btn-secondary btn-small">Upload</label>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Trailer URL (YouTube)</label>
-                  <input type="url" className="form-input" value={filmForm.trailerUrl} onChange={(e) => setFilmForm({ ...filmForm, trailerUrl: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Spotify Playlist URL</label>
-                  <input type="url" className="form-input" value={filmForm.spotifyUrl} onChange={(e) => setFilmForm({ ...filmForm, spotifyUrl: e.target.value })} />
-                </div>
-                <button type="submit" className="btn btn-primary" disabled={uploading}>
-                  {uploading ? 'Uploading...' : 'Add Film'}
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showEditFilm && selectedFilm && (
-        <div className="modal-overlay" onClick={() => setShowEditFilm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Edit Film</h2>
-              <button className="modal-close" onClick={() => setShowEditFilm(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <form onSubmit={handleEditFilm}>
-                <div className="form-group">
-                  <label className="form-label">Title</label>
-                  <input type="text" className="form-input" value={filmForm.title} onChange={(e) => setFilmForm({ ...filmForm, title: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Screening Date</label>
-                  <input type="date" className="form-input" value={filmForm.screeningDate} onChange={(e) => setFilmForm({ ...filmForm, screeningDate: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Event Poster URL</label>
-                  <input type="url" className="form-input" value={filmForm.eventPosterUrl} onChange={(e) => setFilmForm({ ...filmForm, eventPosterUrl: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Trailer URL</label>
-                  <input type="url" className="form-input" value={filmForm.trailerUrl} onChange={(e) => setFilmForm({ ...filmForm, trailerUrl: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Spotify URL</label>
-                  <input type="url" className="form-input" value={filmForm.spotifyUrl} onChange={(e) => setFilmForm({ ...filmForm, spotifyUrl: e.target.value })} />
-                </div>
-                <button type="submit" className="btn btn-primary">Save</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddSubmission && (
-        <div className="modal-overlay" onClick={() => setShowAddSubmission(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Submit Film</h2>
-              <button className="modal-close" onClick={() => setShowAddSubmission(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Search TMDB</label>
-                <input type="text" className="form-input" value={tmdbSearch} onChange={(e) => setTmdbSearch(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && searchTMDB(tmdbSearch)} />
-                {tmdbResults.length > 0 && (
-                  <div className="tmdb-results">
-                    {tmdbResults.map((movie) => (
-                      <div key={movie.id} className="tmdb-result" onClick={() => selectTMDBMovie(movie)}>
-                        {movie.poster_path && <img src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`} className="tmdb-poster" />}
-                        <div className="tmdb-info">
-                          <div className="tmdb-title">{movie.title}</div>
-                          <div className="tmdb-year">{movie.release_date?.split('-')[0]}</div>
-                        </div>
+                <div className="space-y-3">
+                  {members.map(member => ({ ...member, reviewCount: buzzFeed.filter(item => item.memberId === member.id && item.type === 'review').length })).sort((a, b) => b.reviewCount - a.reviewCount).map((member, i) => (
+                    <div key={member.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => navigateTo('profile', member)}>
+                      <div className="flex items-center gap-3 flex-1">
+                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: i < 3 ? '#FFD700' : '#31394d' }}>#{i + 1}</span>
+                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full object-cover" />
+                        <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.reviewCount}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <form onSubmit={handleAddSubmission}>
-                <div className="form-group">
-                  <label className="form-label">Title *</label>
-                  <input type="text" className="form-input" value={submissionForm.title} onChange={(e) => setSubmissionForm({ ...submissionForm, title: e.target.value })} required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Why this film?</label>
-                  <textarea className="form-textarea" value={submissionForm.reason} onChange={(e) => setSubmissionForm({ ...submissionForm, reason: e.target.value })} />
-                </div>
-                <button type="submit" className="btn btn-primary">Submit</button>
-              </form>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {showEditProfile && (
-        <div className="modal-overlay" onClick={() => setShowEditProfile(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Edit Profile</h2>
-              <button className="modal-close" onClick={() => setShowEditProfile(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <form onSubmit={handleEditProfile}>
-                <div className="form-group">
-                  <label className="form-label">Display Name</label>
-                  <input type="text" className="form-input" value={profileForm.displayName} onChange={(e) => setProfileForm({ ...profileForm, displayName: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Bio</label>
-                  <textarea className="form-textarea" value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Photo URL</label>
-                  <input type="url" className="form-input" value={profileForm.photoURL} onChange={(e) => setProfileForm({ ...profileForm, photoURL: e.target.value })} />
-                </div>
-                <button type="submit" className="btn btn-primary">Save</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddScreening && (
-        <div className="modal-overlay" onClick={() => setShowAddScreening(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Schedule Screening</h2>
-              <button className="modal-close" onClick={() => setShowAddScreening(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <form onSubmit={handleAddScreening}>
-                <div className="form-group">
-                  <label className="form-label">Date *</label>
-                  <input type="date" className="form-input" value={screeningForm.date} onChange={(e) => setScreeningForm({ ...screeningForm, date: e.target.value })} required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Title (optional)</label>
-                  <input type="text" className="form-input" value={screeningForm.title} onChange={(e) => setScreeningForm({ ...screeningForm, title: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Event Poster</label>
-                  <input type="url" className="form-input" value={screeningForm.eventPosterUrl} onChange={(e) => setScreeningForm({ ...screeningForm, eventPosterUrl: e.target.value })} />
-                  <div className="upload-area" style={{ marginTop: '12px' }}>
-                    <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e.target.files[0], 'eventPosterUrl', setScreeningForm)} style={{ display: 'none' }} id="screening-upload" />
-                    <label htmlFor="screening-upload" className="btn btn-secondary btn-small">Upload</label>
+        {/* ADMIN PAGE - NO SEED DATABASE OPTION */}
+        {page === 'admin' && isAdmin && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
+            <div className="space-y-6">
+              <div className="p-4 bg-gray-50 rounded">
+                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Database Status</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Films:</p>
+                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{films.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Members:</p>
+                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{members.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Submissions:</p>
+                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{submissions.length}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Buzz Items:</p>
+                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{buzzFeed.length}</p>
                   </div>
                 </div>
-                <button type="submit" className="btn btn-primary" disabled={uploading}>
-                  {uploading ? 'Uploading...' : 'Schedule'}
-                </button>
-              </form>
+              </div>
+              <div className="p-4 bg-gray-50 rounded">
+                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Email to Member ID Mapping</h3>
+                <div className="space-y-2 text-sm">
+                  {Object.entries(EMAIL_TO_MEMBER_ID).map(([email, id]) => (
+                    <div key={email} className="flex justify-between">
+                      <span style={{ fontFamily: 'Courier New, monospace' }}>{email}</span>
+                      <span className="font-mono" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{id}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+          </div>
+        )}
+      </main>
+
+      {/* ADD FILM MODAL */}
+      {showAddFilm && isAdmin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg p-8 max-w-2xl w-full my-8">
+            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
+            <form onSubmit={handleAddFilm} className="space-y-4">
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                <input type="text" value={newFilm.title} onChange={(e) => setNewFilm({...newFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Subtitle</label>
+                <input type="text" value={newFilm.subtitle} onChange={(e) => setNewFilm({...newFilm, subtitle: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
+                <div className="space-y-2">
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'newfilm', 'default')} className="block" />
+                  <div className="text-sm text-gray-500">or</div>
+                  <input type="url" placeholder="Image URL" value={newFilm.image} onChange={(e) => setNewFilm({...newFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                </div>
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster (for upcoming screenings)</label>
+                <div className="space-y-2">
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'newfilm', 'eventPoster')} className="block" />
+                  <div className="text-sm text-gray-500">or</div>
+                  <input type="url" placeholder="Event Poster URL" value={newFilm.eventPoster} onChange={(e) => setNewFilm({...newFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  <button 
+                    type="button" 
+                    onClick={() => setNewFilm({...newFilm, eventPoster: 'https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FBMN12b.jpg?alt=media&token=6e20a116-2381-470e-9e86-e6ceb8f19890'})} 
+                    className="text-sm px-4 py-2 rounded text-white" 
+                    style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}
+                  >
+                    Use Default Event Poster
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
+                <input type="url" value={newFilm.trailer} onChange={(e) => setNewFilm({...newFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score *</label>
+                <input type="number" min="0" max="100" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
+                <input type="number" min="0" max="100" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date *</label>
+                <input type="date" value={newFilm.date} onChange={(e) => setNewFilm({...newFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji</label>
+                <input type="text" value={newFilm.emoji} onChange={(e) => setNewFilm({...newFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} placeholder="🎬" />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Type</label>
+                <select value={newFilm.type} onChange={(e) => setNewFilm({...newFilm, type: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }}>
+                  <option value="bmn">BMN Screening</option>
+                  <option value="offsite-film">Offsite Film</option>
+                </select>
+              </div>
+              <div>
+                <label className="flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                  <input type="checkbox" checked={newFilm.isUpcoming} onChange={(e) => setNewFilm({...newFilm, isUpcoming: e.target.checked})} />
+                  <span className="font-semibold">Mark as Upcoming Screening</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1">If checked, will show event poster until the screening date</p>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
+                  {uploadingImage ? 'Uploading...' : 'Add Film'}
+                </button>
+                <button type="button" onClick={() => setShowAddFilm(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {showVoteModal && selectedFilm && (
-        <div className="modal-overlay" onClick={() => setShowVoteModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Rate & Review</h2>
-              <button className="modal-close" onClick={() => setShowVoteModal(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <h3 style={{ fontSize: '20px', marginBottom: '16px', fontFamily: 'Courier New, monospace' }}>
-                {selectedFilm.title}
-              </h3>
-              <form onSubmit={handleSubmitVote}>
-                <div className="form-group">
-                  <label className="form-label">Rating (0-10)</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="10"
-                    step="0.5"
-                    value={voteForm.rating}
-                    onChange={(e) => setVoteForm({ ...voteForm, rating: e.target.value })}
-                    style={{ width: '100%' }}
+      {/* SUBMIT MOVIE MODAL */}
+      {showSubmitMovie && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg p-8 max-w-2xl w-full my-8">
+            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Submit a Movie</h2>
+            
+            {!showTmdbSearch ? (
+              <form onSubmit={handleSubmitMovie} className="space-y-4">
+                <div className="mb-4">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowTmdbSearch(true)} 
+                    className="w-full py-2 rounded-lg text-white font-semibold flex items-center justify-center gap-2" 
+                    style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}
+                  >
+                    <Search size={20} />
+                    Search TMDB Database
+                  </button>
+                  <p className="text-sm text-gray-500 mt-2 text-center">or enter details manually below</p>
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                  <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({...newSubmission, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'submissions')} className="block" />
+                    <div className="text-sm text-gray-500">or</div>
+                    <input type="url" placeholder="Image URL" value={newSubmission.image} onChange={(e) => setNewSubmission({...newSubmission, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>YouTube Trailer Link</label>
+                  <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({...newSubmission, youtubeLink: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Description</label>
+                  <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({...newSubmission, description: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
+                </div>
+                <div className="flex gap-4">
+                  <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
+                    {uploadingImage ? 'Uploading...' : 'Submit'}
+                  </button>
+                  <button type="button" onClick={() => setShowSubmitMovie(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={tmdbSearchQuery} 
+                    onChange={(e) => setTmdbSearchQuery(e.target.value)} 
+                    placeholder="Search for a movie..." 
+                    className="flex-1 px-4 py-2 border rounded-lg" 
+                    style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }}
+                    onKeyPress={(e) => e.key === 'Enter' && handleTmdbSearch()}
                   />
-                  <div style={{ textAlign: 'center', fontSize: '32px', fontWeight: '900', color: '#009384', marginTop: '12px', fontFamily: 'Courier New, monospace' }}>
-                    ⭐ {voteForm.rating}
-                  </div>
+                  <button onClick={handleTmdbSearch} className="px-6 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                    Search
+                  </button>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Review</label>
-                  <textarea className="form-textarea" value={voteForm.review} onChange={(e) => setVoteForm({ ...voteForm, review: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Badges</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
-                    {['🔥 Fire', '😂 Hilarious', '💀 Cringe', '🤯 WTF', '😴 Boring', '🎭 So Bad'].map((badge) => (
-                      <div
-                        key={badge}
-                        className={`badge ${voteForm.badges.includes(badge) ? 'active' : 'inactive'}`}
-                        onClick={() => toggleBadge(badge)}
-                      >
-                        {badge}
+                
+                {searchingTmdb && <p className="text-center text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Searching...</p>}
+                
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {tmdbSearchResults.map(movie => (
+                    <div key={movie.id} onClick={() => selectTmdbMovie(movie)} className="flex gap-4 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer" style={{ borderColor: '#31394d' }}>
+                      {movie.poster_path && (
+                        <img src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`} alt={movie.title} className="w-16 h-24 object-cover rounded" />
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{movie.title}</h4>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A'}</p>
+                        <p className="text-sm text-gray-700 line-clamp-2">{movie.overview}</p>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-                <button type="submit" className="btn btn-primary">Submit Review</button>
-              </form>
-            </div>
+                
+                <button onClick={() => { setShowTmdbSearch(false); setTmdbSearchResults([]); }} className="w-full py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>
+                  Back to Manual Entry
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
-    </>
+    </div>
   );
+}
+// INITIAL DATA FUNCTIONS
+function getInitialFilms() {
+  return [
+    {
+      id: '1', 
+      title: "Beach Kings", 
+      type: "bmn", 
+      subtitle: "Beach Kings", 
+      image: "https://m.media-amazon.com/images/I/91AqeB8kZTL._UF350,350_QL50_.jpg", 
+      rtScore: 45, 
+      popcornScore: 38, 
+      bmnScore: 0, 
+      date: "2023-08-31", 
+      emoji: "🏐", 
+      trailer: "", 
+      eventPoster: "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FBMN12b.jpg?alt=media&token=6e20a116-2381-470e-9e86-e6ceb8f19890",
+      isUpcoming: false
+    },
+    {
+      id: '2', 
+      title: "Toxic Shark", 
+      type: "bmn", 
+      subtitle: "Toxic Shark", 
+      image: "https://m.media-amazon.com/images/M/MV5BMmEwNWU5OTEtOWE1Ny00YTE1LWFhY2YtNTYyMDYwNjdjYTQyXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg", 
+      rtScore: 31, 
+      popcornScore: 25, 
+      bmnScore: 0, 
+      date: "2023-09-26", 
+      emoji: "🦈", 
+      trailer: "", 
+      eventPoster: "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FBMN12b.jpg?alt=media&token=6e20a116-2381-470e-9e86-e6ceb8f19890",
+      isUpcoming: false
+    }
+  ];
+}
+
+function getInitialMembers() {
+  return [
+    {
+      id: 'matt', 
+      name: "Matt Dernlan", 
+      title: "District Manager of Video", 
+      image: "https://i.pravatar.cc/150?img=33", 
+      bio: "Founding member and curator of cinematic disasters.", 
+      emojis: ["🏐", "🦈", "❄️", "🎄", "🤖"]
+    },
+    {
+      id: 'gabe', 
+      name: "Gabe Kovacs", 
+      title: "Laughs Engineer", 
+      image: "https://i.pravatar.cc/150?img=13", 
+      bio: "Engineered precision laughter.", 
+      emojis: ["🏐", "🦈", "❄️", "🤖"]
+    },
+    {
+      id: 'colin', 
+      name: "Colin Sherman", 
+      title: "Chief Research Officer", 
+      image: "https://i.pravatar.cc/150?img=52", 
+      bio: "Researches every disaster film.", 
+      emojis: ["🏐", "🦈", "❄️"]
+    },
+    {
+      id: 'ryan', 
+      name: "Ryan Pfleiderer", 
+      title: "Anime Lead", 
+      image: "https://i.pravatar.cc/150?img=8", 
+      bio: "Brings anime-level dramatic commentary.", 
+      emojis: ["🏐", "🦈", "❄️", "🤖"]
+    },
+    {
+      id: 'hunter', 
+      name: "Hunter Rising", 
+      title: "Senior VP of Boardology", 
+      image: "https://i.pravatar.cc/150?img=12", 
+      bio: "Expert in identifying plot holes.", 
+      emojis: ["🏐", "🦈", "❄️", "🎄", "🤖"]
+    },
+    {
+      id: 'max', 
+      name: "Max Stenstrom", 
+      title: "Viticulture Team Lead", 
+      image: "https://i.pravatar.cc/150?img=59", 
+      bio: "Pairs wine with terrible movies.", 
+      emojis: ["🌪️", "🪐"]
+    },
+    {
+      id: 'james', 
+      name: "James Burg", 
+      title: "Quips Lead", 
+      image: "https://i.pravatar.cc/150?img=68", 
+      bio: "Delivers perfectly timed one-liners.", 
+      emojis: ["🏐", "🦈", "❄️"]
+    }
+  ];
 }
 
 export default App;
