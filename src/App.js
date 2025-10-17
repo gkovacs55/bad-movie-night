@@ -124,17 +124,26 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // FIXED: Only show pending reviews for films user attended (has emoji badge)
   const checkPendingVotes = () => {
+    // Get films user has already reviewed
     const reviewedFilmIds = buzzFeed
       .filter(item => item.type === 'review' && item.memberId === userProfile.id)
       .map(item => item.filmId);
     
+    // Get user's badge emojis
+    const userEmojis = userProfile.emojis || [];
+    
+    // Get past films that user attended (has the emoji badge)
     const pastFilms = films.filter(f => {
       const filmDate = new Date(f.date);
       const today = new Date();
-      return filmDate < today && !f.isUpcoming;
+      const isPast = filmDate < today && !f.isUpcoming;
+      const userAttended = userEmojis.includes(f.emoji);
+      return isPast && userAttended;
     });
     
+    // Filter to only films user attended but hasn't reviewed
     const pending = pastFilms.filter(f => !reviewedFilmIds.includes(f.id));
     setPendingVotes(pending);
   };
@@ -911,7 +920,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                   <div className="flex-1">
                     <h2 className="text-3xl md:text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
                     <p className="text-xl mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{selectedMember.title}</p>
-                    <p className="text-gray-700 mb-4">{selectedMember.bio}</p>
+                    <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{selectedMember.bio}</p>
                     <div className="flex gap-2 flex-wrap mb-4">
                       {selectedMember.emojis?.map((emoji, i) => {
                         const film = getFilmForBadge(emoji, selectedMember.emojis);
@@ -946,7 +955,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                     <h3 className="text-2xl mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
                       ⚠️ Pending Reviews
                     </h3>
-                    <p className="mb-4 text-gray-700">You need to review the following films:</p>
+                    <p className="mb-4 text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>You need to review the following films you attended:</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {pendingVotes.map(film => (
                         <div 
@@ -978,7 +987,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                         <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{review.score}</span>
                         <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
                       </div>
-                      <p className="text-gray-700">{review.text}</p>
+                      <p className="text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>{review.text}</p>
                     </div>
                   ))}
                 </div>
@@ -987,7 +996,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
           </div>
         )}
 
-        {/* FILM PAGE */}
+        {/* FILM PAGE - FIXED ASPECT RATIO */}
         {page === 'film' && selectedFilm && (
           <div className="bg-white rounded-lg shadow-lg p-8">
             {editingFilm && editingFilm.id === selectedFilm.id ? (
@@ -1044,20 +1053,23 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                   <button onClick={() => setEditingFilm(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>
                     <X size={16} className="inline mr-2" />Cancel
                   </button>
-                  <button onClick={() => handleDeleteFilm(editingFilm.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>
-                    <Trash2 size={16} className="inline mr-2" />Delete Film
-                  </button>
+                  {isAdmin && (
+                    <button onClick={() => handleDeleteFilm(editingFilm.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>
+                      <Trash2 size={16} className="inline mr-2" />Delete Film
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
               <>
                 <div className="grid md:grid-cols-2 gap-6 mb-8">
                   <div className="space-y-4">
-                    <div className="relative w-full max-w-xs mx-auto" style={{ paddingBottom: '150%' }}>
+                    {/* FIXED: Same aspect ratio as home page */}
+                    <div className="relative w-full max-w-sm mx-auto" style={{ paddingBottom: '150%' }}>
                       <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
                     </div>
                     {selectedFilm.eventPoster && selectedFilm.eventPoster !== selectedFilm.image && (
-                      <div className="relative w-full max-w-xs mx-auto" style={{ paddingBottom: '150%' }}>
+                      <div className="relative w-full max-w-sm mx-auto" style={{ paddingBottom: '150%' }}>
                         <img src={selectedFilm.eventPoster} alt="Event Poster" className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
                       </div>
                     )}
@@ -1104,10 +1116,11 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                       </div>
                     </div>
                     
+                    {/* MORE COURIER NEW FONT IN TMDB INFO */}
                     {tmdbData && (
                       <div className="mb-6 p-4 bg-gray-50 rounded-lg">
                         <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Movie Info</h4>
-                        {tmdbData.overview && <p className="text-sm text-gray-700 mb-3">{tmdbData.overview}</p>}
+                        {tmdbData.overview && <p className="text-sm text-gray-700 mb-3" style={{ fontFamily: 'Courier New, monospace' }}>{tmdbData.overview}</p>}
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           {tmdbData.release_date && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
                           {tmdbData.runtime && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
@@ -1202,7 +1215,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                                 )}
                               </div>
                             </div>
-                            <p className="text-gray-700 mb-2">{review.text}</p>
+                            <p className="text-gray-700 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>{review.text}</p>
                             <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
                               <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
                               <span style={{ fontFamily: 'Courier New, monospace' }}>{(review.likes || []).length}</span>
@@ -1242,7 +1255,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                           )}
                         </div>
                       </div>
-                      <p className="text-gray-700 mb-4">{item.text}</p>
+                      <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{item.text}</p>
                       <div className="flex gap-4">
                         <button onClick={() => handleLikeBuzzItem(item.id, item.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
                           <Heart size={20} fill={(item.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(item.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
@@ -1271,7 +1284,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                               )}
                             </div>
                           </div>
-                          <p className="text-gray-700">{reply.text}</p>
+                          <p className="text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>{reply.text}</p>
                         </div>
                       ))}
                     </>
@@ -1282,7 +1295,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
           </div>
         )}
 
-        {/* UP NEXT PAGE WITH VOTER VISIBILITY */}
+        {/* UP NEXT PAGE WITH VOTER VISIBILITY & MORE COURIER NEW */}
         {page === 'upnext' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -1306,7 +1319,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                         {sub.image && <img src={sub.image} alt={sub.title} className="w-full h-auto object-cover rounded mb-4" />}
                         <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{sub.title}</h3>
                         <p className="text-sm text-gray-600 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>Submitted by: {sub.submittedBy}</p>
-                        {sub.description && <p className="text-gray-700 mb-4">{sub.description}</p>}
+                        {sub.description && <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{sub.description}</p>}
                         {isAdmin && (
                           <button 
                             onClick={() => handleDeleteSubmission(sub.id)} 
@@ -1387,6 +1400,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                       </div>
                     </div>
                     
+                    {/* COMMENTS WITH COURIER NEW */}
                     <div className="mt-6 pt-6 border-t" style={{ borderColor: '#31394d' }}>
                       <h4 className="font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Comments ({comments.length})</h4>
                       <div className="space-y-3 mb-4">
@@ -1396,7 +1410,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                               <span className="font-semibold text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{comment.memberName}</span>
                               <span className="text-xs text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{comment.timestamp?.toDate ? new Date(comment.timestamp.toDate()).toLocaleDateString() : ''}</span>
                             </div>
-                            <p className="text-gray-700 text-sm">{comment.text}</p>
+                            <p className="text-gray-700 text-sm" style={{ fontFamily: 'Courier New, monospace' }}>{comment.text}</p>
                           </div>
                         ))}
                       </div>
