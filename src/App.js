@@ -32,7 +32,6 @@ const EMAIL_TO_MEMBER_ID = {
   'jamesaburg@gmail.com': 'james'
 };
 
-// UPDATE #2: Multi-admin management - Default admins
 const DEFAULT_ADMIN_EMAILS = [
   'mattdernlan@gmail.com',
   'gkovacs55@gmail.com'
@@ -82,7 +81,9 @@ function App() {
   const [adminEmails, setAdminEmails] = useState(DEFAULT_ADMIN_EMAILS);
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
-  const isAdmin = user && adminEmails.includes(user.email);useEffect(() => {
+  const isAdmin = user && adminEmails.includes(user.email);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
@@ -117,7 +118,6 @@ function App() {
     }
   }, [selectedFilm]);
 
-  // BROWSER BACK BUTTON FIX
   useEffect(() => {
     const handlePopState = (e) => {
       if (e.state && e.state.page) {
@@ -131,7 +131,6 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // FIXED: Only show pending reviews for films user attended (has emoji badge)
   const checkPendingVotes = () => {
     const reviewedFilmIds = buzzFeed
       .filter(item => item.type === 'review' && item.memberId === userProfile.id)
@@ -164,7 +163,6 @@ function App() {
     }
   };
 
-  // BMN SCORE CALCULATION - AVERAGE OF ALL VOTES
   const calculateBMNScore = (filmId) => {
     const reviews = buzzFeed.filter(item => 
       item.type === 'review' && item.filmId === filmId && typeof item.score === 'number'
@@ -176,7 +174,6 @@ function App() {
     return Math.round(sum / reviews.length);
   };
 
-  // UPDATE #2: Load admin list from Firestore
   const loadAdminList = async () => {
     try {
       const adminDoc = await getDoc(doc(db, 'settings', 'admins'));
@@ -188,7 +185,6 @@ function App() {
     }
   };
 
-  // UPDATE #2: Add new admin
   const addAdmin = async () => {
     if (!newAdminEmail || !isAdmin) return;
     
@@ -204,7 +200,6 @@ function App() {
     }
   };
 
-  // UPDATE #2: Remove admin
   const removeAdmin = async (emailToRemove) => {
     if (!isAdmin || adminEmails.length <= 1) {
       alert('Cannot remove the last admin');
@@ -235,7 +230,6 @@ function App() {
       const buzzSnap = await getDocs(query(collection(db, 'buzzFeed'), orderBy('timestamp', 'desc')));
       const buzzData = buzzSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // UPDATE #3: Load submission comments for Buzz feed
       const commentsData = {};
       for (const sub of submissionsData) {
         const commentsSnap = await getDocs(collection(db, 'submissions', sub.id, 'comments'));
@@ -387,7 +381,6 @@ function App() {
     
     await addDoc(collection(db, 'submissions', submissionId, 'comments'), commentData);
     
-    // UPDATE #3: Also add to Buzz feed
     const submission = submissions.find(s => s.id === submissionId);
     await addDoc(collection(db, 'buzzFeed'), {
       type: 'submission_comment',
@@ -402,7 +395,9 @@ function App() {
     setCommentText('');
     setCommentingOn(null);
     await loadData();
-  };const handleSubmitMovie = async (e) => {
+  };
+
+  const handleSubmitMovie = async (e) => {
     e.preventDefault();
     if (!userProfile) return;
 
@@ -571,16 +566,16 @@ function App() {
       const filmRef = doc(db, 'films', editingFilm.id);
       await updateDoc(filmRef, {
         title: editingFilm.title,
-        subtitle: editingFilm.subtitle,
+        subtitle: editingFilm.subtitle || '',
         image: editingFilm.image,
-        eventPoster: editingFilm.eventPoster,
+        eventPoster: editingFilm.eventPoster || '',
         rtScore: parseInt(editingFilm.rtScore),
         popcornScore: parseInt(editingFilm.popcornScore || 0),
         bmnScore: parseInt(editingFilm.bmnScore || 0),
         date: editingFilm.date,
         emoji: editingFilm.emoji,
         type: editingFilm.type,
-        trailer: editingFilm.trailer,
+        trailer: editingFilm.trailer || '',
         isUpcoming: editingFilm.isUpcoming || false
       });
       setEditingFilm(null);
@@ -614,6 +609,13 @@ function App() {
       });
       setEditingProfile(null);
       await loadData();
+      
+      if (userProfile && userProfile.id === editingProfile.id) {
+        setUserProfile({ ...userProfile, name: editingProfile.name, title: editingProfile.title, bio: editingProfile.bio, image: editingProfile.image });
+      }
+      
+      setSelectedMember({ ...selectedMember, name: editingProfile.name, title: editingProfile.title, bio: editingProfile.bio, image: editingProfile.image });
+      
       alert('Profile updated!');
     } catch (err) {
       alert('Update failed: ' + err.message);
@@ -719,7 +721,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* HEADER */}
       <header className="shadow-md" style={{ backgroundColor: '#31394d' }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -776,7 +777,8 @@ function App() {
             <ChevronLeft size={20} />
             <span>Back</span>
           </button>
-        )}{/* HOME PAGE */}
+        )}
+
         {page === 'home' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -866,7 +868,6 @@ function App() {
           </div>
         )}
 
-        {/* MEMBERS PAGE */}
         {page === 'members' && (
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Members</h2>
@@ -885,8 +886,7 @@ function App() {
               ))}
             </div>
           </div>
-        )}{/* PROFILE PAGE */}
-        {page === 'profile' && selectedMember && (
+        )}{page === 'profile' && selectedMember && (
           <div>
             {editingProfile && editingProfile.id === selectedMember.id ? (
               <div className="bg-white rounded-lg shadow-lg p-8">
@@ -1008,8 +1008,7 @@ function App() {
               </>
             )}
           </div>
-        )}{/* FILM PAGE */}
-        {page === 'film' && selectedFilm && (
+        )}{page === 'film' && selectedFilm && (
           <div className="bg-white rounded-lg shadow-lg p-8">
             {editingFilm && editingFilm.id === selectedFilm.id ? (
               <div className="space-y-4">
@@ -1251,8 +1250,7 @@ function App() {
               </>
             )}
           </div>
-        )}{/* BUZZ PAGE */}
-        {page === 'buzz' && (
+        )}{page === 'buzz' && (
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>The Buzz</h2>
             <div className="space-y-4">
@@ -1335,10 +1333,61 @@ function App() {
           </div>
         )}
 
-        {/* LEADERBOARD PAGE */}
         {page === 'leaderboard' && (
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Leaderboard</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>🏆 Highest BMN Score</h3>
+                {(() => {
+                  const topFilm = films
+                    .filter(f => !f.isUpcoming)
+                    .map(f => ({ ...f, bmnScore: calculateBMNScore(f.id) }))
+                    .sort((a, b) => b.bmnScore - a.bmnScore)[0];
+                  return topFilm ? (
+                    <div>
+                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topFilm.title}</p>
+                      <p className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topFilm.bmnScore}</p>
+                    </div>
+                  ) : <p>No data yet</p>;
+                })()}
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>💩 Lowest RT Score</h3>
+                {(() => {
+                  const worstFilm = films
+                    .filter(f => !f.isUpcoming)
+                    .sort((a, b) => a.rtScore - b.rtScore)[0];
+                  return worstFilm ? (
+                    <div>
+                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{worstFilm.title}</p>
+                      <p className="text-3xl font-bold text-red-500" style={{ fontFamily: 'Courier New, monospace' }}>{worstFilm.rtScore}%</p>
+                    </div>
+                  ) : <p>No data yet</p>;
+                })()}
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>📝 Most Reviews</h3>
+                {(() => {
+                  const topReviewer = members
+                    .map(m => ({
+                      ...m,
+                      reviewCount: buzzFeed.filter(b => b.type === 'review' && b.memberId === m.id).length
+                    }))
+                    .sort((a, b) => b.reviewCount - a.reviewCount)[0];
+                  return topReviewer ? (
+                    <div>
+                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topReviewer.name}</p>
+                      <p className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topReviewer.reviewCount} reviews</p>
+                    </div>
+                  ) : <p>No data yet</p>;
+                })()}
+              </div>
+            </div>
+            
             <div className="bg-white rounded-lg shadow-lg overflow-hidden">
               <table className="w-full">
                 <thead style={{ backgroundColor: '#31394d' }}>
@@ -1378,10 +1427,7 @@ function App() {
               </table>
             </div>
           </div>
-        )}
-
-        {/* UP NEXT PAGE */}
-        {page === 'upnext' && (
+        )}{page === 'upnext' && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Up Next</h2>
@@ -1389,7 +1435,7 @@ function App() {
                 <Plus size={20} />Submit Movie
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="flex gap-6 overflow-x-auto pb-4" style={{ scrollbarWidth: 'thin' }}>
               {submissions.map(sub => {
                 const upvotes = Object.values(sub.votes || {}).filter(v => v === 'up').length;
                 const downvotes = Object.values(sub.votes || {}).filter(v => v === 'down').length;
@@ -1397,7 +1443,7 @@ function App() {
                 const comments = submissionComments[sub.id] || [];
                 
                 return (
-                  <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
+                  <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden flex-shrink-0" style={{ width: '300px' }}>
                     <div className="relative" style={{ paddingBottom: '120%' }}>
                       <img src={sub.image} alt={sub.title} className="absolute inset-0 w-full h-full object-cover" />
                     </div>
@@ -1485,12 +1531,12 @@ function App() {
               })}
             </div>
           </div>
-        )}{/* ADMIN PAGE */}
+        )}
+
         {page === 'admin' && isAdmin && (
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
             
-            {/* Admin Management Section */}
             <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
               <h3 className="text-2xl font-bold mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
                 <Shield size={24} />
@@ -1561,10 +1607,7 @@ function App() {
             </div>
           </div>
         )}
-      </main>
-
-      {/* ADD FILM MODAL */}
-      {showAddFilm && (
+      </main>{showAddFilm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
@@ -1623,7 +1666,6 @@ function App() {
         </div>
       )}
 
-      {/* SUBMIT MOVIE MODAL */}
       {showSubmitMovie && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
