@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, Save, X, Upload, Plus, ThumbsUp, ThumbsDown, Trash2, Menu, ChevronLeft, Search, Calendar } from 'lucide-react';
+import { Heart, MessageCircle, Film, LogIn, LogOut, Edit, Save, X, Upload, Plus, ThumbsUp, ThumbsDown, Trash2, Menu, ChevronLeft, Search, Calendar, Shield } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, orderBy, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
@@ -32,6 +32,12 @@ const EMAIL_TO_MEMBER_ID = {
   'jamesaburg@gmail.com': 'james'
 };
 
+// UPDATE #2: Multi-admin management - Default admins
+const DEFAULT_ADMIN_EMAILS = [
+  'mattdernlan@gmail.com',
+  'gkovacs55@gmail.com'
+];
+
 function App() {
   const [page, setPage] = useState('home');
   const [films, setFilms] = useState([]);
@@ -59,7 +65,10 @@ function App() {
   const [newSubmission, setNewSubmission] = useState({
     title: '', image: '', youtubeLink: '', description: ''
   });
-  const [userVote, setUserVote] = useState({ score: 50, text: '', thumbs: 'neutral' });
+  // UPDATE #6: Separate score and review state
+  const [userScore, setUserScore] = useState(50);
+  const [userReview, setUserReview] = useState('');
+  const [userThumbs, setUserThumbs] = useState('neutral');
   const [replyText, setReplyText] = useState('');
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
@@ -73,8 +82,12 @@ function App() {
   const [showTmdbSearch, setShowTmdbSearch] = useState(false);
   const [tmdbSearchQuery, setTmdbSearchQuery] = useState('');
   const [filmVotes, setFilmVotes] = useState({});
+  // UPDATE #2: Admin list state
+  const [adminEmails, setAdminEmails] = useState(DEFAULT_ADMIN_EMAILS);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
 
-  const isAdmin = user && Object.keys(EMAIL_TO_MEMBER_ID).includes(user.email);
+  // UPDATE #2: Check if user is admin from stored admin list
+  const isAdmin = user && adminEmails.includes(user.email);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -93,6 +106,7 @@ function App() {
       }
     });
     loadData();
+    loadAdminList();
     return () => unsubscribe();
   }, []);
 
@@ -123,6 +137,52 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // UPDATE #2: Load admin list from Firestore
+  const loadAdminList = async () => {
+    try {
+      const adminDoc = await getDoc(doc(db, 'settings', 'admins'));
+      if (adminDoc.exists()) {
+        setAdminEmails(adminDoc.data().emails || DEFAULT_ADMIN_EMAILS);
+      }
+    } catch (err) {
+      console.error('Error loading admin list:', err);
+    }
+  };
+
+  // UPDATE #2: Add new admin
+  const addAdmin = async () => {
+    if (!newAdminEmail || !isAdmin) return;
+    
+    const updatedAdmins = [...adminEmails, newAdminEmail];
+    try {
+      await setDoc(doc(db, 'settings', 'admins'), { emails: updatedAdmins });
+      setAdminEmails(updatedAdmins);
+      setNewAdminEmail('');
+      alert('Admin added successfully!');
+    } catch (err) {
+      console.error('Error adding admin:', err);
+      alert('Failed to add admin');
+    }
+  };
+
+  // UPDATE #2: Remove admin
+  const removeAdmin = async (emailToRemove) => {
+    if (!isAdmin || adminEmails.length <= 1) {
+      alert('Cannot remove the last admin');
+      return;
+    }
+    
+    const updatedAdmins = adminEmails.filter(e => e !== emailToRemove);
+    try {
+      await setDoc(doc(db, 'settings', 'admins'), { emails: updatedAdmins });
+      setAdminEmails(updatedAdmins);
+      alert('Admin removed successfully!');
+    } catch (err) {
+      console.error('Error removing admin:', err);
+      alert('Failed to remove admin');
+    }
+  };
 
   // FIXED: Only show pending reviews for films user attended (has emoji badge)
   const checkPendingVotes = () => {
@@ -176,53 +236,34 @@ function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const filmsSnap = await getDocs(collection(db, 'films'));
-      let filmsData = filmsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      const membersSnap = await getDocs(collection(db, 'members'));
+      const [filmsSnap, membersSnap, submissionsSnap, buzzSnap] = await Promise.all([
+        getDocs(collection(db, 'films')),
+        getDocs(collection(db, 'members')),
+        getDocs(collection(db, 'submissions')),
+        getDocs(query(collection(db, 'buzz'), orderBy('timestamp', 'desc')))
+      ]);
+
+      const filmsData = filmsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       const membersData = membersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setMembers(membersData.length > 0 ? membersData : getInitialMembers());
-
-      const submissionsSnap = await getDocs(collection(db, 'submissions'));
       const submissionsData = submissionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSubmissions(submissionsData);
+      const buzzData = buzzSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+      setFilms(filmsData.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      setMembers(membersData);
+      setSubmissions(submissionsData);
+      setBuzzFeed(buzzData);
+
+      // UPDATE #3: Load submission comments for Buzz feed
       const commentsData = {};
       for (const sub of submissionsData) {
-        const commentsSnap = await getDocs(query(collection(db, 'submissions', sub.id, 'comments'), orderBy('timestamp', 'asc')));
+        const commentsSnap = await getDocs(collection(db, 'submissions', sub.id, 'comments'));
         commentsData[sub.id] = commentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       }
       setSubmissionComments(commentsData);
-
-      const buzzSnap = await getDocs(query(collection(db, 'buzzFeed'), orderBy('timestamp', 'desc')));
-      const buzzData = buzzSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setBuzzFeed(buzzData);
-      
-      // Calculate BMN scores for all films
-      filmsData = filmsData.map(film => ({
-        ...film,
-        bmnScore: film.isUpcoming ? 0 : calculateBMNScoreFromBuzz(film.id, buzzData)
-      }));
-      
-      setFilms(filmsData.length > 0 ? filmsData.sort((a, b) => new Date(b.date) - new Date(a.date)) : getInitialFilms());
-      
     } catch (err) {
       console.error('Load error:', err);
-      setFilms(getInitialFilms());
-      setMembers(getInitialMembers());
     }
     setLoading(false);
-  };
-
-  const calculateBMNScoreFromBuzz = (filmId, buzzData) => {
-    const reviews = buzzData.filter(item => 
-      item.type === 'review' && item.filmId === filmId && typeof item.score === 'number'
-    );
-    
-    if (reviews.length === 0) return 0;
-    
-    const sum = reviews.reduce((acc, review) => acc + review.score, 0);
-    return Math.round(sum / reviews.length);
   };
 
   const handleLogin = async (e) => {
@@ -230,253 +271,27 @@ function App() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setShowLogin(false);
-      setEmail('');
-      setPassword('');
     } catch (err) {
       alert('Login failed: ' + err.message);
-    }
-  };
-
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    try {
-      await sendPasswordResetEmail(auth, email);
-      alert('Password reset email sent! Check your inbox.');
-      setForgotPassword(false);
-    } catch (err) {
-      alert('Error: ' + err.message);
     }
   };
 
   const handleLogout = async () => {
     await signOut(auth);
     setShowLogin(true);
-    setPage('home');
   };
 
-  const handleImageUpload = async (e, type, target = 'default') => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setUploadingImage(true);
-    try {
-      const storageRef = ref(storage, `${type}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      
-      if (type === 'members' && editingProfile) {
-        setEditingProfile({ ...editingProfile, image: url });
-      } else if (type === 'films' && editingFilm) {
-        if (target === 'eventPoster') {
-          setEditingFilm({ ...editingFilm, eventPoster: url });
-        } else {
-          setEditingFilm({ ...editingFilm, image: url });
-        }
-      } else if (type === 'submissions') {
-        setNewSubmission({ ...newSubmission, image: url });
-      } else if (type === 'newfilm') {
-        if (target === 'eventPoster') {
-          setNewFilm({ ...newFilm, eventPoster: url });
-        } else {
-          setNewFilm({ ...newFilm, image: url });
-        }
-      }
-    } catch (err) {
-      alert('Upload failed: ' + err.message);
+  const handleForgotPassword = async () => {
+    if (!email) {
+      alert('Please enter your email address');
+      return;
     }
-    setUploadingImage(false);
-  };
-
-  const handleSaveProfile = async () => {
-    if (!editingProfile) return;
     try {
-      await updateDoc(doc(db, 'members', editingProfile.id), {
-        name: editingProfile.name,
-        title: editingProfile.title,
-        bio: editingProfile.bio,
-        image: editingProfile.image
-      });
-      await loadData();
-      setEditingProfile(null);
-      alert('Profile updated!');
+      await sendPasswordResetEmail(auth, email);
+      alert('Password reset email sent!');
+      setForgotPassword(false);
     } catch (err) {
-      alert('Save failed: ' + err.message);
-    }
-  };
-
-  const handleSaveFilm = async () => {
-    if (!editingFilm) return;
-    try {
-      const updatedFilm = {
-        ...editingFilm,
-        bmnScore: editingFilm.isUpcoming ? 0 : calculateBMNScore(editingFilm.id)
-      };
-      await updateDoc(doc(db, 'films', editingFilm.id), updatedFilm);
-      await loadData();
-      setEditingFilm(null);
-      setSelectedFilm(null);
-      alert('Film updated!');
-    } catch (err) {
-      alert('Save failed: ' + err.message);
-    }
-  };
-
-  const handleDeleteFilm = async (filmId) => {
-    if (!isAdmin) return;
-    if (!window.confirm('Are you sure you want to delete this film?')) return;
-    try {
-      await deleteDoc(doc(db, 'films', filmId));
-      await loadData();
-      setPage('home');
-      alert('Film deleted!');
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  };
-
-  // ADMIN CAN DELETE SUBMISSIONS
-  const handleDeleteSubmission = async (submissionId) => {
-    if (!isAdmin) return;
-    if (!window.confirm('Are you sure you want to delete this submission?')) return;
-    try {
-      await deleteDoc(doc(db, 'submissions', submissionId));
-      await loadData();
-      alert('Submission deleted!');
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  };
-
-  const handleDeleteBuzzItem = async (itemId) => {
-    if (!isAdmin) return;
-    if (!window.confirm('Are you sure you want to delete this?')) return;
-    try {
-      await deleteDoc(doc(db, 'buzzFeed', itemId));
-      await loadData();
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  };
-
-  const handleVoteSubmit = async (filmId) => {
-    if (!userProfile) return;
-    
-    const voteData = {
-      authUserId: user.uid,
-      authUserEmail: user.email,
-      memberId: userProfile.id,
-      memberName: userProfile.name,
-      score: userVote.score,
-      text: userVote.text,
-      thumbs: userVote.thumbs,
-      timestamp: new Date().toISOString(),
-      filmId: filmId,
-      filmTitle: selectedFilm.title,
-      likes: []
-    };
-
-    await setDoc(doc(db, 'films', filmId, 'votes', userProfile.id), voteData);
-    
-    await addDoc(collection(db, 'buzzFeed'), {
-      ...voteData,
-      type: 'review',
-      timestamp: serverTimestamp()
-    });
-
-    await loadData();
-    setUserVote({ score: 50, text: '', thumbs: 'neutral' });
-    alert('Vote submitted successfully!');
-  };
-const handleLikeBuzzItem = async (itemId, likes) => {
-    if (!userProfile) return;
-    
-    const isLiked = likes && likes.includes(userProfile.id);
-    await updateDoc(doc(db, 'buzzFeed', itemId), {
-      likes: isLiked ? arrayRemove(userProfile.id) : arrayUnion(userProfile.id)
-    });
-    await loadData();
-  };
-
-  const handleReplyToBuzz = async (itemId) => {
-    if (!userProfile || !replyText.trim()) return;
-    
-    await addDoc(collection(db, 'buzzFeed'), {
-      type: 'reply',
-      replyTo: itemId,
-      text: replyText,
-      memberName: userProfile.name,
-      memberId: userProfile.id,
-      timestamp: serverTimestamp()
-    });
-    
-    setReplyText('');
-    setReplyingTo(null);
-    await loadData();
-  };
-
-  const handleCommentOnSubmission = async (submissionId) => {
-    if (!userProfile || !commentText.trim()) return;
-    
-    await addDoc(collection(db, 'submissions', submissionId, 'comments'), {
-      text: commentText,
-      memberName: userProfile.name,
-      memberId: userProfile.id,
-      timestamp: serverTimestamp()
-    });
-    
-    setCommentText('');
-    setCommentingOn(null);
-    await loadData();
-  };
-
-  const handleSubmitMovie = async (e) => {
-    e.preventDefault();
-    if (!userProfile) return;
-
-    const submissionData = {
-      ...newSubmission,
-      submittedBy: userProfile.name,
-      submitterId: userProfile.id,
-      timestamp: new Date().toISOString(),
-      votes: {},
-      status: 'pending'
-    };
-
-    await addDoc(collection(db, 'submissions'), submissionData);
-    setNewSubmission({ title: '', image: '', youtubeLink: '', description: '' });
-    setShowSubmitMovie(false);
-    setShowTmdbSearch(false);
-    setTmdbSearchResults([]);
-    await loadData();
-  };
-
-  const handleVoteOnSubmission = async (submissionId, vote) => {
-    if (!userProfile) return;
-    await updateDoc(doc(db, 'submissions', submissionId), {
-      [`votes.${userProfile.id}`]: vote
-    });
-    await loadData();
-  };
-
-  const handleAddFilm = async (e) => {
-    e.preventDefault();
-    if (!isAdmin) return;
-    try {
-      await addDoc(collection(db, 'films'), {
-        ...newFilm,
-        rtScore: parseInt(newFilm.rtScore),
-        popcornScore: parseInt(newFilm.popcornScore || 0),
-        bmnScore: newFilm.isUpcoming ? 0 : parseInt(newFilm.bmnScore || 0)
-      });
-      setNewFilm({
-        title: '', subtitle: '', image: '', eventPoster: '', rtScore: '', popcornScore: '',
-        bmnScore: 0, date: '', emoji: '🎬', type: 'bmn', trailer: '', isUpcoming: false
-      });
-      setShowAddFilm(false);
-      await loadData();
-      alert('Film added!');
-    } catch (err) {
-      alert('Add failed: ' + err.message);
+      alert('Error: ' + err.message);
     }
   };
 
@@ -494,7 +309,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
       );
       const data = await response.json();
       if (data.results && data.results.length > 0) {
-        await fetchTMDBDetails(data.results[0].id);
+        setTmdbData(data.results[0]);
       }
     } catch (err) {
       console.error('TMDB search error:', err);
@@ -504,6 +319,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
 
   const handleTmdbSearch = async () => {
     if (!tmdbSearchQuery.trim()) return;
+    
     setSearchingTmdb(true);
     try {
       const response = await fetch(
@@ -525,329 +341,791 @@ const handleLikeBuzzItem = async (itemId, likes) => {
 
   const selectTmdbMovie = (movie) => {
     setNewSubmission({
-      ...newSubmission,
       title: movie.title,
       image: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '',
+      youtubeLink: '',
       description: movie.overview || ''
     });
     setShowTmdbSearch(false);
     setTmdbSearchResults([]);
-    setTmdbSearchQuery('');
   };
 
-  const fetchTMDBDetails = async (movieId) => {
+  const handleImageUpload = async (e, category) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingImage(true);
     try {
-      const response = await fetch(
-        `${TMDB_BASE_URL}/movie/${movieId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${TMDB_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const data = await response.json();
-      setTmdbData(data);
+      const storageRef = ref(storage, `members/uploads/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      
+      if (category === 'film') {
+        setNewFilm({ ...newFilm, image: url });
+      } else if (category === 'eventPoster') {
+        setNewFilm({ ...newFilm, eventPoster: url });
+      } else if (category === 'submissions') {
+        setNewSubmission({ ...newSubmission, image: url });
+      } else if (category === 'editFilm') {
+        setEditingFilm({ ...editingFilm, image: url });
+      } else if (category === 'editEventPoster') {
+        setEditingFilm({ ...editingFilm, eventPoster: url });
+      }
     } catch (err) {
-      console.error('TMDB details error:', err);
+      console.error('Upload error:', err);
+      alert('Upload failed');
+    }
+    setUploadingImage(false);
+  };
+
+  const addFilm = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+
+    try {
+      const filmId = newFilm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      await setDoc(doc(db, 'films', filmId), {
+        ...newFilm,
+        id: filmId,
+        rtScore: Number(newFilm.rtScore),
+        popcornScore: Number(newFilm.popcornScore),
+        bmnScore: Number(newFilm.bmnScore)
+      });
+
+      setShowAddFilm(false);
+      setNewFilm({
+        title: '', subtitle: '', image: '', eventPoster: '', rtScore: '', popcornScore: '',
+        bmnScore: 0, date: '', emoji: '🎬', type: 'bmn', trailer: '', isUpcoming: false
+      });
+      loadData();
+    } catch (err) {
+      console.error('Add film error:', err);
+      alert('Failed to add film');
     }
   };
 
-  const getRTIcon = (score) => {
-    return score >= 50 
-      ? "https://www.clipartmax.com/png/small/50-503753_rotten-tomatoes-logo-png.png"
-      : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png?alt=media&token=4a975032-aed9-4f51-9809-beeff10084b0";
-  };
+  const updateFilm = async (e) => {
+    e.preventDefault();
+    if (!isAdmin || !editingFilm) return;
 
-  const getPopcornIcon = (score) => {
-    return score >= 50
-      ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588548_open-popcorn-icon-rotten-tomatoes.png?alt=media&token=31b871a7-d2ba-4bd3-a408-b286bf07d16d"
-      : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png?alt=media&token=6b444b2a-dc46-443f-b3ed-6fd88c814b2a";
-  };
+    try {
+      const updateData = {
+        ...editingFilm,
+        rtScore: Number(editingFilm.rtScore),
+        popcornScore: Number(editingFilm.popcornScore),
+        bmnScore: Number(editingFilm.bmnScore)
+      };
+      delete updateData.id;
 
-  const extractYouTubeId = (url) => {
-    if (!url) return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
-  };
-
-  // NAVIGATION WITH BROWSER HISTORY
-  const navigateTo = (newPage, data = null) => {
-    if (data) {
-      if (newPage === 'film') setSelectedFilm(data);
-      if (newPage === 'profile') setSelectedMember(data);
+      await updateDoc(doc(db, 'films', editingFilm.id), updateData);
+      setEditingFilm(null);
+      loadData();
+    } catch (err) {
+      console.error('Update error:', err);
+      alert('Failed to update film');
     }
-    setPage(newPage);
-    setShowMobileMenu(false);
-    window.history.pushState({ page: newPage }, '', `#${newPage}`);
   };
 
-  const goBack = () => {
-    window.history.back();
+  const deleteFilm = async (filmId) => {
+    if (!isAdmin || !confirm('Delete this film?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'films', filmId));
+      loadData();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Failed to delete');
+    }
   };
 
-  // HELPER FUNCTION TO GET FILM FROM BADGE EMOJI
-  const getFilmForBadge = (emoji, memberEmojis) => {
-    const emojiIndex = memberEmojis.indexOf(emoji);
-    const filmsWithEmoji = films.filter(f => f.emoji === emoji).sort((a, b) => new Date(a.date) - new Date(b.date));
-    return filmsWithEmoji[emojiIndex] || filmsWithEmoji[0];
+  // UPDATE #6: Separate vote submission (score only)
+  const submitVote = async (filmId) => {
+    if (!user || !userProfile) return;
+
+    try {
+      const voteData = {
+        authUserId: user.uid,
+        authUserEmail: user.email,
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        score: Number(userScore),
+        thumbs: userThumbs,
+        timestamp: new Date().toISOString(),
+        filmId: filmId,
+        filmTitle: selectedFilm.title
+      };
+
+      await setDoc(doc(db, 'films', filmId, 'votes', userProfile.id), voteData);
+
+      await addDoc(collection(db, 'buzz'), {
+        type: 'vote',
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        filmId: filmId,
+        filmTitle: selectedFilm.title,
+        score: Number(userScore),
+        thumbs: userThumbs,
+        timestamp: new Date().toISOString()
+      });
+
+      setUserScore(50);
+      setUserThumbs('neutral');
+      loadData();
+      loadFilmVotes(filmId);
+      alert('Vote submitted!');
+    } catch (err) {
+      console.error('Vote error:', err);
+      alert('Failed to submit vote');
+    }
   };
 
-  // LOADING STATE
-  if (loading) {
+  // UPDATE #6: Separate review submission (text only)
+  const submitReview = async (filmId) => {
+    if (!user || !userProfile || !userReview.trim()) {
+      alert('Please write a review');
+      return;
+    }
+
+    try {
+      const reviewData = {
+        authUserId: user.uid,
+        authUserEmail: user.email,
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        text: userReview,
+        timestamp: new Date().toISOString(),
+        filmId: filmId,
+        filmTitle: selectedFilm.title
+      };
+
+      await addDoc(collection(db, 'buzz'), {
+        type: 'review',
+        ...reviewData
+      });
+
+      setUserReview('');
+      loadData();
+      alert('Review submitted!');
+    } catch (err) {
+      console.error('Review error:', err);
+      alert('Failed to submit review');
+    }
+  };
+
+  const likeReview = async (reviewId, currentLikes = []) => {
+    if (!userProfile) return;
+
+    try {
+      const hasLiked = currentLikes.includes(userProfile.id);
+      const buzzRef = doc(db, 'buzz', reviewId);
+      
+      if (hasLiked) {
+        await updateDoc(buzzRef, {
+          likes: arrayRemove(userProfile.id)
+        });
+      } else {
+        await updateDoc(buzzRef, {
+          likes: arrayUnion(userProfile.id)
+        });
+      }
+      
+      loadData();
+    } catch (err) {
+      console.error('Like error:', err);
+    }
+  };
+
+  const addReply = async (buzzId) => {
+    if (!userProfile || !replyText.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'buzz', buzzId, 'replies'), {
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        text: replyText,
+        timestamp: new Date().toISOString()
+      });
+
+      setReplyText('');
+      setReplyingTo(null);
+      loadData();
+    } catch (err) {
+      console.error('Reply error:', err);
+    }
+  };
+
+  const submitMovieSubmission = async (e) => {
+    e.preventDefault();
+    if (!userProfile) return;
+
+    try {
+      const submissionData = {
+        ...newSubmission,
+        submittedBy: userProfile.id,
+        submitterName: userProfile.name,
+        timestamp: new Date().toISOString(),
+        votes: { yes: [], no: [] }
+      };
+
+      const docRef = await addDoc(collection(db, 'submissions'), submissionData);
+
+      // UPDATE #3: Add submission to Buzz feed
+      await addDoc(collection(db, 'buzz'), {
+        type: 'submission',
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        submissionId: docRef.id,
+        submissionTitle: newSubmission.title,
+        timestamp: new Date().toISOString()
+      });
+
+      setShowSubmitMovie(false);
+      setNewSubmission({ title: '', image: '', youtubeLink: '', description: '' });
+      loadData();
+    } catch (err) {
+      console.error('Submission error:', err);
+      alert('Failed to submit');
+    }
+  };
+
+  const voteOnSubmission = async (submissionId, voteType) => {
+    if (!userProfile) return;
+
+    try {
+      const submissionRef = doc(db, 'submissions', submissionId);
+      const submissionDoc = await getDoc(submissionRef);
+      const currentVotes = submissionDoc.data().votes || { yes: [], no: [] };
+
+      const hasVotedYes = currentVotes.yes.includes(userProfile.id);
+      const hasVotedNo = currentVotes.no.includes(userProfile.id);
+
+      let newVotes = { ...currentVotes };
+
+      if (voteType === 'yes') {
+        if (hasVotedYes) {
+          newVotes.yes = newVotes.yes.filter(id => id !== userProfile.id);
+        } else {
+          newVotes.yes = [...newVotes.yes, userProfile.id];
+          newVotes.no = newVotes.no.filter(id => id !== userProfile.id);
+        }
+      } else {
+        if (hasVotedNo) {
+          newVotes.no = newVotes.no.filter(id => id !== userProfile.id);
+        } else {
+          newVotes.no = [...newVotes.no, userProfile.id];
+          newVotes.yes = newVotes.yes.filter(id => id !== userProfile.id);
+        }
+      }
+
+      await updateDoc(submissionRef, { votes: newVotes });
+      loadData();
+    } catch (err) {
+      console.error('Vote error:', err);
+    }
+  };
+
+  const addSubmissionComment = async (submissionId) => {
+    if (!userProfile || !commentText.trim()) return;
+
+    try {
+      const commentData = {
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        text: commentText,
+        timestamp: new Date().toISOString()
+      };
+
+      await addDoc(collection(db, 'submissions', submissionId, 'comments'), commentData);
+
+      // UPDATE #3: Add submission comment to Buzz feed
+      const submission = submissions.find(s => s.id === submissionId);
+      await addDoc(collection(db, 'buzz'), {
+        type: 'submission_comment',
+        memberId: userProfile.id,
+        memberName: userProfile.name,
+        submissionId: submissionId,
+        submissionTitle: submission?.title || 'Unknown',
+        text: commentText,
+        timestamp: new Date().toISOString()
+      });
+
+      setCommentText('');
+      setCommentingOn(null);
+      loadData();
+    } catch (err) {
+      console.error('Comment error:', err);
+    }
+  };
+
+  const deleteSubmission = async (submissionId) => {
+    if (!isAdmin || !confirm('Delete this submission?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'submissions', submissionId));
+      loadData();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Failed to delete');
+    }
+  };
+
+  const updateMemberProfile = async (e) => {
+    e.preventDefault();
+    if (!editingProfile) return;
+
+    try {
+      const updateData = { ...editingProfile };
+      delete updateData.id;
+
+      await updateDoc(doc(db, 'members', editingProfile.id), updateData);
+      setEditingProfile(null);
+      loadData();
+    } catch (err) {
+      console.error('Update error:', err);
+      alert('Failed to update profile');
+    }
+  };
+
+  const getYouTubeEmbedUrl = (url) => {
+    if (!url) return '';
+    const videoId = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+    return videoId ? `https://www.youtube.com/embed/${videoId[1]}` : '';
+  };
+
+  if (showLogin) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
-          Loading...
-        </div>
-      </div>
-    );
-  }
-
-  // LOGIN PAGE WITH BACKGROUND IMAGE
-  if (showLogin || !user) {
-    return (
-      <div 
-        className="min-h-screen flex items-center justify-center relative"
-        style={{
-          backgroundImage: 'url(https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FSPLASH%20SCREEN%20001.png?alt=media&token=0ad0ed4d-8c85-4d4a-87bd-4f133dbb94e8)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat'
-        }}
-      >
-        <div className="absolute inset-0 bg-black bg-opacity-50"></div>
-        <div className="bg-white p-8 rounded-lg shadow-2xl w-96 relative z-10">
-          <h1 className="text-4xl mb-2 text-center" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{
+        backgroundImage: 'url(https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FSPLASH%20SCREEN%20001.png?alt=media&token=0ad0ed4d-8c85-4d4a-87bd-4f133dbb94e8)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center'
+      }}>
+        <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full" style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)' }}>
+          <h1 className="text-4xl font-bold mb-6 text-center" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
             Bad Movie Night
           </h1>
-          <p className="text-center text-sm mb-1 text-gray-600" style={{ fontStyle: 'italic' }}>
-            Where Terrible Movies Become Legendary
-          </p>
-          <div className="text-center text-xs mb-6 font-semibold" style={{ color: '#009384' }}>
-            🎬 EXCLUSIVE • INVITE ONLY • MEMBERS ONLY 🎬
-          </div>
-          <p className="text-center text-xs mb-6 text-gray-500">
-            This is a private screening club for the most discerning bad movie enthusiasts.
-          </p>
-          
           {!forgotPassword ? (
             <form onSubmit={handleLogin} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
-                style={{ borderColor: '#31394d' }}
-                required
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
-                style={{ borderColor: '#31394d' }}
-                required
-              />
-              <button
-                type="submit"
-                className="w-full py-2 rounded-lg text-white font-semibold hover:opacity-90"
-                style={{ backgroundColor: '#31394d' }}
-              >
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Email</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <button type="submit" className="w-full py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
                 Login
               </button>
-              <button
-                type="button"
-                onClick={() => setForgotPassword(true)}
-                className="w-full text-sm hover:underline"
-                style={{ color: '#009384' }}
-              >
+              <button type="button" onClick={() => setForgotPassword(true)} className="w-full text-sm underline" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
                 Forgot Password?
               </button>
             </form>
           ) : (
-            <form onSubmit={handleForgotPassword} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
-                style={{ borderColor: '#31394d' }}
-                required
-              />
-              <button
-                type="submit"
-                className="w-full py-2 rounded-lg text-white font-semibold"
-                style={{ backgroundColor: '#31394d' }}
-              >
-                Send Reset Link
+            <div className="space-y-4">
+              <p className="text-sm mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Enter your email to receive a password reset link.</p>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Email</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <button onClick={handleForgotPassword} className="w-full py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                Send Reset Email
               </button>
-              <button
-                type="button"
-                onClick={() => setForgotPassword(false)}
-                className="w-full text-sm hover:underline"
-                style={{ color: '#009384' }}
-              >
+              <button onClick={() => setForgotPassword(false)} className="w-full text-sm underline" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
                 Back to Login
               </button>
-            </form>
+            </div>
           )}
         </div>
       </div>
     );
   }
-// MAIN APP RETURN
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#31394d' }}>
+        <div className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Loading...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* HEADER */}
-      <header className="shadow-md" style={{ backgroundColor: '#31394d' }}>
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigateTo('home')} className="flex items-center gap-3 hover:opacity-80">
-              <Film size={32} style={{ color: '#009384' }} />
-              <h1 className="text-2xl md:text-3xl text-white" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>
-                Bad Movie Night
-              </h1>
+    <div className="min-h-screen" style={{ backgroundColor: '#f5f5f5' }}>
+      {/* Mobile Menu Button */}
+      <div className="md:hidden fixed top-4 right-4 z-50">
+        <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="p-2 rounded-lg" style={{ backgroundColor: '#31394d' }}>
+          {showMobileMenu ? <X size={24} color="white" /> : <Menu size={24} color="white" />}
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <nav className={`${showMobileMenu ? 'fixed inset-0 z-40' : 'hidden'} md:block md:static p-4`} style={{ backgroundColor: '#31394d' }}>
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <button 
+            onClick={() => { setPage('home'); setShowMobileMenu(false); window.history.pushState({ page: 'home' }, '', '#home'); }}
+            className="text-2xl md:text-3xl font-bold hover:opacity-80"
+            style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}
+          >
+            Bad Movie Night
+          </button>
+          <div className="flex flex-col md:flex-row gap-2 md:gap-4">
+            <button onClick={() => { setPage('home'); setShowMobileMenu(false); window.history.pushState({ page: 'home' }, '', '#home'); }} className={`px-4 py-2 rounded-lg font-bold`} style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'home' ? '#009384' : 'transparent', color: 'white' }}>
+              Home
+            </button>
+            <button onClick={() => { setPage('members'); setShowMobileMenu(false); window.history.pushState({ page: 'members' }, '', '#members'); }} className="px-4 py-2 rounded-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'members' ? '#009384' : 'transparent', color: 'white' }}>
+              Members
+            </button>
+            <button onClick={() => { setPage('upnext'); setShowMobileMenu(false); window.history.pushState({ page: 'upnext' }, '', '#upnext'); }} className="px-4 py-2 rounded-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'upnext' ? '#009384' : 'transparent', color: 'white' }}>
+              Up Next
+            </button>
+            <button onClick={() => { setPage('leaderboard'); setShowMobileMenu(false); window.history.pushState({ page: 'leaderboard' }, '', '#leaderboard'); }} className="px-4 py-2 rounded-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'leaderboard' ? '#009384' : 'transparent', color: 'white' }}>
+              Leaderboard
+            </button>
+            <button onClick={() => { setPage('buzz'); setShowMobileMenu(false); window.history.pushState({ page: 'buzz' }, '', '#buzz'); }} className="px-4 py-2 rounded-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'buzz' ? '#009384' : 'transparent', color: 'white' }}>
+              The Buzz
+            </button>
+            {isAdmin && (
+              <button onClick={() => { setPage('admin'); setShowMobileMenu(false); window.history.pushState({ page: 'admin' }, '', '#admin'); }} className="px-4 py-2 rounded-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: page === 'admin' ? '#009384' : 'transparent', color: 'white' }}>
+                Admin
+              </button>
+            )}
+            <button onClick={handleLogout} className="px-4 py-2 rounded-lg flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: 'white' }}>
+              <LogOut size={18} />
+              Logout
             </button>
           </div>
-          
-          <button 
-            onClick={() => setShowMobileMenu(!showMobileMenu)} 
-            className="md:hidden text-white"
-          >
-            <Menu size={28} />
-          </button>
-
-          <nav className="hidden md:flex items-center gap-6">
-            <button onClick={() => navigateTo('home')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace', fontWeight: page === 'home' ? 'bold' : 'normal' }}>Home</button>
-            <button onClick={() => navigateTo('leaderboard')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Leaderboard</button>
-            <button onClick={() => navigateTo('members')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Members</button>
-            <button onClick={() => navigateTo('buzz')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>The Buzz</button>
-            <button onClick={() => navigateTo('upnext')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Up Next</button>
-            <button onClick={() => navigateTo('profile', userProfile)} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Profile</button>
-            {isAdmin && <button onClick={() => navigateTo('admin')} className="text-white hover:opacity-80" style={{ fontFamily: 'Courier New, monospace' }}>Admin</button>}
-            <button onClick={handleLogout} className="text-white hover:opacity-80"><LogOut size={20} /></button>
-          </nav>
         </div>
+      </nav>
 
-        {showMobileMenu && (
-          <div className="md:hidden bg-white border-t" style={{ borderColor: '#31394d' }}>
-            <nav className="flex flex-col">
-              <button onClick={() => navigateTo('home')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d', fontWeight: page === 'home' ? 'bold' : 'normal' }}>Home</button>
-              <button onClick={() => navigateTo('leaderboard')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Leaderboard</button>
-              <button onClick={() => navigateTo('members')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Members</button>
-              <button onClick={() => navigateTo('buzz')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>The Buzz</button>
-              <button onClick={() => navigateTo('upnext')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Up Next</button>
-              <button onClick={() => navigateTo('profile', userProfile)} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Profile</button>
-              {isAdmin && <button onClick={() => navigateTo('admin')} className="px-4 py-3 text-left hover:bg-gray-100" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Admin</button>}
-              <button onClick={handleLogout} className="px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}><LogOut size={20} />Logout</button>
-            </nav>
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto p-4">
+        {userProfile && (
+          <div className="mb-4 text-right" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+            Hi, {userProfile.name}!
           </div>
-        )}
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {page !== 'home' && (
-          <button 
-            onClick={goBack} 
-            className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900"
-            style={{ fontFamily: 'Courier New, monospace' }}
-          >
-            <ChevronLeft size={20} />
-            <span>Back</span>
-          </button>
         )}
 
         {/* HOME PAGE */}
         {page === 'home' && (
           <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>BMN Screenings</h2>
-              {isAdmin && (
-                <button onClick={() => setShowAddFilm(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
-                  <Plus size={20} />Add Film
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
-              {films.filter(f => f.type === 'bmn').map(film => {
-                const isUpcoming = film.isUpcoming || new Date(film.date) > new Date();
-                const displayImage = isUpcoming && film.eventPoster ? film.eventPoster : film.image;
-                
-                return (
-                  <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden relative">
-                    {isUpcoming && (
-                      <div className="absolute top-2 right-2 z-10 bg-yellow-400 text-black px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1" style={{ fontFamily: 'Courier New, monospace' }}>
-                        <Calendar size={12} />
-                        UPCOMING
-                      </div>
-                    )}
-                    <div className="relative" style={{ paddingBottom: '150%' }}>
-                      <img src={displayImage} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+            <h2 className="text-3xl font-bold mb-6" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Bad Movie Night Screenings
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {films.map(film => (
+                <div 
+                  key={film.id} 
+                  onClick={() => {
+                    setSelectedFilm(film);
+                    setPage('filmdetail');
+                    window.history.pushState({ page: 'filmdetail' }, '', '#filmdetail');
+                  }}
+                  className="bg-white rounded-lg shadow-lg overflow-hidden cursor-pointer hover:shadow-xl transition-shadow relative"
+                  style={{ border: film.isUpcoming ? '3px solid #009384' : 'none' }}
+                >
+                  {film.isUpcoming && (
+                    <div className="absolute top-2 right-2 px-3 py-1 rounded-full text-white text-sm font-bold z-10" style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}>
+                      UPCOMING
                     </div>
-                    <div className="p-3">
-                      <h3 className="text-sm font-bold text-center mb-1 line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
-                      <p className="text-xs text-gray-600 text-center mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
-                        <span className="font-semibold">Screening Date:</span> {new Date(film.date).toLocaleDateString()}
-                      </p>
-                      {!isUpcoming && (
-                        <div className="flex justify-around items-center">
-                          <div className="text-center">
-                            <img src={getRTIcon(film.rtScore)} alt="RT" className="w-5 h-5 mx-auto mb-1" />
-                            <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
-                          </div>
-                          {film.popcornScore > 0 && (
-                            <div className="text-center">
-                              <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-5 h-5 mx-auto mb-1" />
-                              <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
-                            </div>
-                          )}
-                          <div className="text-center">
-                            <div className="text-lg mb-1">🎬</div>
-                            <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{film.bmnScore}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Offsite Films</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {films.filter(f => f.type === 'offsite-film').map(film => (
-                <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow overflow-hidden">
+                  )}
+                  {/* UPDATE #1: 2:3 aspect ratio for poster */}
                   <div className="relative" style={{ paddingBottom: '150%' }}>
-                    <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
+                    <img 
+                      src={film.isUpcoming ? (film.eventPoster || film.image) : film.image} 
+                      alt={film.title} 
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
                   </div>
-                  <div className="p-3">
-                    <h3 className="text-sm font-bold text-center mb-1 line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
-                    <p className="text-xs text-gray-600 text-center mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
-                      <span className="font-semibold">Screening Date:</span> {new Date(film.date).toLocaleDateString()}
-                    </p>
-                    <div className="flex justify-around items-center">
-                      <div className="text-center">
-                        <img src={getRTIcon(film.rtScore)} alt="RT" className="w-5 h-5 mx-auto mb-1" />
-                        <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
+                  <div className="p-4">
+                    <h3 className="text-xl font-bold mb-2 text-center" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                      {film.title}
+                    </h3>
+                    {film.date && (
+                      <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        <strong>Screening Date:</strong> {new Date(film.date).toLocaleDateString()}
+                      </p>
+                    )}
+                    {/* UPDATE #5: Larger icons and scores */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <img 
+                          src={film.rtScore >= 60 
+                            ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2Frt-fresh.png?alt=media" 
+                            : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png?alt=media&token=4a975032-aed9-4f51-9809-beeff10084b0"
+                          }
+                          alt="RT"
+                          className="w-8 h-8"
+                        />
+                        <span className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                          {film.rtScore}%
+                        </span>
                       </div>
-                      {film.popcornScore > 0 && (
-                        <div className="text-center">
-                          <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-5 h-5 mx-auto mb-1" />
-                          <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
-                        </div>
-                      )}
-                      <div className="text-center">
-                        <div className="text-lg mb-1">🎬</div>
-                        <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{film.bmnScore}</p>
+                      <div className="flex items-center gap-2">
+                        <img 
+                          src={film.popcornScore >= 50
+                            ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588548_open-popcorn-icon-rotten-tomatoes.png?alt=media&token=31b871a7-d2ba-4bd3-a408-b286bf07d16d"
+                            : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png?alt=media&token=6b444b2a-dc46-443f-b3ed-6fd88c814b2a"
+                          }
+                          alt="Popcorn"
+                          className="w-8 h-8"
+                        />
+                        <span className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                          {film.popcornScore}%
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Film size={28} color="#009384" />
+                        <span className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          {calculateBMNScore(film.id)}
+                        </span>
                       </div>
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* FILM DETAIL PAGE */}
+        {page === 'filmdetail' && selectedFilm && (
+          <div>
+            <button 
+              onClick={() => { 
+                setPage('home'); 
+                setSelectedFilm(null);
+                window.history.pushState({ page: 'home' }, '', '#home');
+              }} 
+              className="mb-4 flex items-center gap-2 px-4 py-2 rounded-lg text-white" 
+              style={{ backgroundColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+            >
+              <ChevronLeft size={20} />
+              Back to Home
+            </button>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* LEFT: Poster Images */}
+              <div className="space-y-4">
+                {/* UPDATE #1: 2:3 aspect ratio for main poster */}
+                <div>
+                  <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Movie Poster</h4>
+                  <div className="relative" style={{ paddingBottom: '150%' }}>
+                    <img 
+                      src={selectedFilm.image} 
+                      alt={selectedFilm.title}
+                      className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg"
+                    />
+                  </div>
+                </div>
+
+                {/* UPDATE #1: 2:3 aspect ratio for event poster */}
+                {selectedFilm.eventPoster && (
+                  <div>
+                    <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>BMN Event Poster</h4>
+                    <div className="relative" style={{ paddingBottom: '150%' }}>
+                      <img 
+                        src={selectedFilm.eventPoster} 
+                        alt="Event Poster"
+                        className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MIDDLE & RIGHT: Details and Voting */}
+              <div className="md:col-span-2 space-y-6">
+                {/* Film Info */}
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                  <h2 className="text-3xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                    {selectedFilm.title}
+                  </h2>
+                  {selectedFilm.subtitle && (
+                    <p className="text-lg mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                      {selectedFilm.subtitle}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="text-center">
+                      <img 
+                        src={selectedFilm.rtScore >= 60 
+                          ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2Frt-fresh.png?alt=media" 
+                          : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F8-85807_rotten-tomatoes%C2%AE-score-wikimedia-commons.png?alt=media&token=4a975032-aed9-4f51-9809-beeff10084b0"
+                        }
+                        alt="RT"
+                        className="w-16 h-16 mx-auto mb-2"
+                      />
+                      <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        {selectedFilm.rtScore}%
+                      </p>
+                      <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>RT Score</p>
+                    </div>
+                    <div className="text-center">
+                      <img 
+                        src={selectedFilm.popcornScore >= 50
+                          ? "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588548_open-popcorn-icon-rotten-tomatoes.png?alt=media&token=31b871a7-d2ba-4bd3-a408-b286bf07d16d"
+                          : "https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2F158-1588925_rotten-tomatoes-negative-audience-rotten-tomatoes-green-splat.png?alt=media&token=6b444b2a-dc46-443f-b3ed-6fd88c814b2a"
+                        }
+                        alt="Popcorn"
+                        className="w-16 h-16 mx-auto mb-2"
+                      />
+                      <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        {selectedFilm.popcornScore}%
+                      </p>
+                      <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>Popcornmeter</p>
+                    </div>
+                    <div className="text-center">
+                      <Film size={64} color="#009384" className="mx-auto mb-2" />
+                      <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                        {calculateBMNScore(selectedFilm.id)}
+                      </p>
+                      <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>BMN Score</p>
+                    </div>
+                  </div>
+                  {selectedFilm.date && (
+                    <p className="mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                      <strong>Screening Date:</strong> {new Date(selectedFilm.date).toLocaleDateString()}
+                    </p>
+                  )}
+                  {tmdbData && (
+                    <div className="mb-4">
+                      <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Overview</h4>
+                      <p style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>{tmdbData.overview}</p>
+                    </div>
+                  )}
+                  {selectedFilm.trailer && getYouTubeEmbedUrl(selectedFilm.trailer) && (
+                    <div className="mb-4">
+                      <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Trailer</h4>
+                      <div className="relative" style={{ paddingBottom: '56.25%' }}>
+                        <iframe
+                          className="absolute inset-0 w-full h-full rounded-lg"
+                          src={getYouTubeEmbedUrl(selectedFilm.trailer)}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* UPDATE #6: SEPARATED VOTING SECTION */}
+                {user && userProfile && (
+                  <div className="bg-white rounded-lg shadow-lg p-6">
+                    <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                      Your Rating & Review
+                    </h3>
+
+                    {/* Score Submission */}
+                    <div className="mb-6 pb-6 border-b">
+                      <label className="block mb-2 font-semibold text-lg" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        How much did you like this movie?
+                      </label>
+                      <div className="flex items-center gap-4 mb-4">
+                        <input 
+                          type="range" 
+                          min="0" 
+                          max="100" 
+                          value={userScore}
+                          onChange={(e) => setUserScore(Number(e.target.value))}
+                          className="flex-1"
+                        />
+                        <span className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          {userScore}
+                        </span>
+                      </div>
+                      <div className="flex gap-4 mb-4">
+                        <button 
+                          onClick={() => setUserThumbs('up')}
+                          className={`flex-1 py-2 rounded-lg font-semibold flex items-center justify-center gap-2 ${userThumbs === 'up' ? 'ring-2 ring-green-500' : ''}`}
+                          style={{ backgroundColor: userThumbs === 'up' ? '#22c55e' : '#e5e5e5', color: userThumbs === 'up' ? 'white' : '#31394d', fontFamily: 'Courier New, monospace' }}
+                        >
+                          <ThumbsUp size={20} />
+                          Thumbs Up
+                        </button>
+                        <button 
+                          onClick={() => setUserThumbs('down')}
+                          className={`flex-1 py-2 rounded-lg font-semibold flex items-center justify-center gap-2 ${userThumbs === 'down' ? 'ring-2 ring-red-500' : ''}`}
+                          style={{ backgroundColor: userThumbs === 'down' ? '#ef4444' : '#e5e5e5', color: userThumbs === 'down' ? 'white' : '#31394d', fontFamily: 'Courier New, monospace' }}
+                        >
+                          <ThumbsDown size={20} />
+                          Thumbs Down
+                        </button>
+                      </div>
+                      <button 
+                        onClick={() => submitVote(selectedFilm.id)}
+                        className="w-full py-2 rounded-lg text-white font-semibold"
+                        style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+                      >
+                        Submit Score
+                      </button>
+                    </div>
+
+                    {/* Review Submission */}
+                    <div>
+                      <label className="block mb-2 font-semibold text-lg" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        Write a Review (Optional)
+                      </label>
+                      <textarea 
+                        value={userReview}
+                        onChange={(e) => setUserReview(e.target.value)}
+                        placeholder="Share your thoughts about this movie..."
+                        className="w-full px-4 py-2 border rounded-lg mb-4"
+                        style={{ borderColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+                        rows="4"
+                      />
+                      <button 
+                        onClick={() => submitReview(selectedFilm.id)}
+                        className="w-full py-2 rounded-lg text-white font-semibold"
+                        style={{ backgroundColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+                      >
+                        Submit Review
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* All Reviews */}
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                  <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                    All Reviews
+                  </h3>
+                  <div className="space-y-4">
+                    {Object.entries(filmVotes).map(([voteId, vote]) => {
+                      const member = members.find(m => m.id === vote.memberId);
+                      return (
+                        <div key={voteId} className="border-b pb-4">
+                          <div className="flex items-start gap-3">
+                            {member && (
+                              <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full" />
+                            )}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                                  {vote.memberName}
+                                </span>
+                                {vote.score !== undefined && (
+                                  <span className="text-xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                                    {vote.score}
+                                  </span>
+                                )}
+                                {vote.thumbs === 'up' && <ThumbsUp size={16} color="#22c55e" />}
+                                {vote.thumbs === 'down' && <ThumbsDown size={16} color="#ef4444" />}
+                              </div>
+                              {vote.text && (
+                                <p style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>{vote.text}</p>
+                              )}
+                              {vote.timestamp && (
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {new Date(vote.timestamp).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -855,689 +1133,627 @@ const handleLikeBuzzItem = async (itemId, likes) => {
         {/* MEMBERS PAGE */}
         {page === 'members' && (
           <div>
-            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Members</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <h2 className="text-3xl font-bold mb-6" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Members
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {members.map(member => (
-                <div key={member.id} onClick={() => navigateTo('profile', member)} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow text-center">
-                  <img src={member.image} alt={member.name} className="w-32 h-32 rounded-full mx-auto mb-4 object-cover" />
-                  <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{member.name}</h3>
-                  <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.title}</p>
-                  <div className="flex justify-center gap-1 flex-wrap">
-                    {member.emojis?.slice(0, 10).map((emoji, i) => <span key={i} className="text-2xl">{emoji}</span>)}
+                <div 
+                  key={member.id} 
+                  onClick={() => {
+                    setSelectedMember(member);
+                    setPage('memberdetail');
+                    window.history.pushState({ page: 'memberdetail' }, '', '#memberdetail');
+                  }}
+                  className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow"
+                >
+                  <img src={member.image} alt={member.name} className="w-24 h-24 rounded-full mx-auto mb-4" />
+                  <h3 className="text-xl font-bold text-center mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                    {member.name}
+                  </h3>
+                  <p className="text-center mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                    {member.title}
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {(member.emojis || []).map((emoji, idx) => (
+                      <span key={idx} className="text-2xl">{emoji}</span>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-{/* PROFILE PAGE */}
-        {page === 'profile' && selectedMember && (
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            {editingProfile && editingProfile.id === selectedMember.id ? (
-              <div className="space-y-4">
-                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Profile</h2>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Profile Image</label>
-                  <img src={editingProfile.image} alt="Profile" className="w-32 h-32 rounded-full object-cover mb-2" />
-                  <div className="space-y-2">
-                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'members')} className="block" />
-                    <div className="text-sm text-gray-500">or</div>
-                    <input 
-                      type="url" 
-                      placeholder="Image URL" 
-                      value={editingProfile.image} 
-                      onChange={(e) => setEditingProfile({...editingProfile, image: e.target.value})} 
-                      className="w-full px-4 py-2 border rounded-lg" 
-                      style={{ borderColor: '#31394d' }} 
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Name</label>
-                  <input type="text" value={editingProfile.name} onChange={(e) => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title</label>
-                  <input type="text" value={editingProfile.title} onChange={(e) => setEditingProfile({...editingProfile, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Bio</label>
-                  <textarea value={editingProfile.bio} onChange={(e) => setEditingProfile({...editingProfile, bio: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={handleSaveProfile} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
-                    <Save size={16} className="inline mr-2" />{uploadingImage ? 'Uploading...' : 'Save'}
-                  </button>
-                  <button onClick={() => setEditingProfile(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>
-                    <X size={16} className="inline mr-2" />Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col md:flex-row gap-8 mb-8">
-                  <img src={selectedMember.image} alt={selectedMember.name} className="w-48 h-48 rounded-full object-cover mx-auto md:mx-0" />
-                  <div className="flex-1">
-                    <h2 className="text-3xl md:text-4xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedMember.name}</h2>
-                    <p className="text-xl mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{selectedMember.title}</p>
-                    <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{selectedMember.bio}</p>
-                    <div className="flex gap-2 flex-wrap mb-4">
-                      {selectedMember.emojis?.map((emoji, i) => {
-                        const film = getFilmForBadge(emoji, selectedMember.emojis);
-                        return (
-                          <div key={i} className="relative group">
-                            <span 
-                              className="text-3xl cursor-pointer transition-transform hover:scale-125"
-                              onClick={() => film && navigateTo('film', film)}
-                            >
-                              {emoji}
-                            </span>
-                            {film && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10" style={{ fontFamily: 'Courier New, monospace' }}>
-                                {film.title}<br />
-                                {new Date(film.date).toLocaleDateString()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {userProfile && userProfile.id === selectedMember.id && isAdmin && (
-                      <button onClick={() => setEditingProfile(selectedMember)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}>
-                        <Edit size={16} className="inline mr-2" />Edit Profile
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                {userProfile && userProfile.id === selectedMember.id && pendingVotes.length > 0 && (
-                  <div className="mb-8 p-6 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
-                    <h3 className="text-2xl mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
-                      ⚠️ Pending Reviews
-                    </h3>
-                    <p className="mb-4 text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>You need to review the following films you attended:</p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {pendingVotes.map(film => (
-                        <div 
-                          key={film.id} 
-                          onClick={() => navigateTo('film', film)}
-                          className="bg-white rounded-lg shadow cursor-pointer hover:shadow-lg transition-shadow overflow-hidden"
-                        >
-                          <div className="relative" style={{ paddingBottom: '150%' }}>
-                            <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover" />
-                          </div>
-                          <div className="p-2">
-                            <p className="text-xs font-bold text-center line-clamp-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Recent Reviews</h3>
-                <div className="space-y-4">
-                  {buzzFeed.filter(item => item.memberId === selectedMember.id && item.type === 'review').slice(0, 10).map(review => (
-                    <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                      <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{review.filmTitle}</h4>
-                        <span className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{review.timestamp?.toDate ? new Date(review.timestamp.toDate()).toLocaleDateString() : ''}</span>
-                      </div>
-                      <div className="flex items-center gap-4 mb-2">
-                        <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{review.score}</span>
-                        <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
-                      </div>
-                      <p className="text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>{review.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
 
-        {/* FILM PAGE - FIXED ASPECT RATIO */}
-        {page === 'film' && selectedFilm && (
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            {editingFilm && editingFilm.id === selectedFilm.id ? (
-              <div className="space-y-4">
-                <h2 className="text-3xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Film</h2>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title</label>
-                  <input type="text" value={editingFilm.title} onChange={(e) => setEditingFilm({...editingFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster Image</label>
-                  {editingFilm.image && <img src={editingFilm.image} alt="Poster" className="w-32 h-48 object-cover mb-2 rounded" />}
-                  <div className="space-y-2">
-                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'films', 'default')} className="block" />
-                    <div className="text-sm text-gray-500">or</div>
-                    <input type="url" placeholder="Image URL" value={editingFilm.image} onChange={(e) => setEditingFilm({...editingFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster (for upcoming screenings)</label>
-                  {editingFilm.eventPoster && <img src={editingFilm.eventPoster} alt="Event Poster" className="w-32 h-48 object-cover mb-2 rounded" />}
-                  <div className="space-y-2">
-                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'films', 'eventPoster')} className="block" />
-                    <div className="text-sm text-gray-500">or</div>
-                    <input type="url" placeholder="Event Poster URL" value={editingFilm.eventPoster || ''} onChange={(e) => setEditingFilm({...editingFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</label>
-                  <input type="number" value={editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
-                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
-                  <input type="url" value={editingFilm.trailer || ''} onChange={(e) => setEditingFilm({...editingFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date</label>
-                  <input type="date" value={editingFilm.date} onChange={(e) => setEditingFilm({...editingFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace' }}>
-                    <input type="checkbox" checked={editingFilm.isUpcoming} onChange={(e) => setEditingFilm({...editingFilm, isUpcoming: e.target.checked})} />
-                    <span className="font-semibold">Mark as Upcoming Screening</span>
-                  </label>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={handleSaveFilm} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
-                    <Save size={16} className="inline mr-2" />Save
-                  </button>
-                  <button onClick={() => setEditingFilm(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>
-                    <X size={16} className="inline mr-2" />Cancel
-                  </button>
-                  {isAdmin && (
-                    <button onClick={() => handleDeleteFilm(editingFilm.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>
-                      <Trash2 size={16} className="inline mr-2" />Delete Film
+        {/* MEMBER DETAIL PAGE */}
+        {page === 'memberdetail' && selectedMember && (
+          <div>
+            <button 
+              onClick={() => {
+                setPage('members');
+                setSelectedMember(null);
+                window.history.pushState({ page: 'members' }, '', '#members');
+              }}
+              className="mb-4 flex items-center gap-2 px-4 py-2 rounded-lg text-white"
+              style={{ backgroundColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+            >
+              <ChevronLeft size={20} />
+              Back to Members
+            </button>
+
+            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+              <div className="flex items-start gap-6">
+                <img src={selectedMember.image} alt={selectedMember.name} className="w-32 h-32 rounded-full" />
+                <div className="flex-1">
+                  <h2 className="text-3xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                    {selectedMember.name}
+                  </h2>
+                  <p className="text-xl mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                    {selectedMember.title}
+                  </p>
+                  <p className="mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                    {selectedMember.bio}
+                  </p>
+                  {isAdmin && userProfile?.id === selectedMember.id && (
+                    <button 
+                      onClick={() => setEditingProfile(selectedMember)}
+                      className="px-4 py-2 rounded-lg text-white font-semibold"
+                      style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+                    >
+                      Edit Profile
                     </button>
                   )}
                 </div>
               </div>
-            ) : (
-              <>
-                <div className="grid md:grid-cols-2 gap-6 mb-8">
-                  <div className="space-y-4">
-                    {/* FIXED: Same aspect ratio as home page */}
-                    <div className="relative w-full max-w-sm mx-auto" style={{ paddingBottom: '150%' }}>
-                      <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
-                    </div>
-                    {selectedFilm.eventPoster && selectedFilm.eventPoster !== selectedFilm.image && (
-                      <div className="relative w-full max-w-sm mx-auto" style={{ paddingBottom: '150%' }}>
-                        <img src={selectedFilm.eventPoster} alt="Event Poster" className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div>
-                    <h2 className="text-3xl md:text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
-                    {selectedFilm.subtitle && <p className="text-xl mb-4 text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.subtitle}</p>}
-                    <p className="text-gray-600 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>
-                      <span className="font-semibold">Screening Date:</span> {new Date(selectedFilm.date).toLocaleDateString()}
-                    </p>
-                    
-                    {selectedFilm.trailer && (
-                      <div className="mb-6 aspect-video">
-                        <iframe
-                          width="100%"
-                          height="100%"
-                          src={`https://www.youtube.com/embed/${extractYouTubeId(selectedFilm.trailer)}`}
-                          frameBorder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          className="rounded-lg"
-                        />
-                      </div>
-                    )}
-                    
-                    <div className="flex gap-8 mb-6">
-                      <div className="text-center">
-                        <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
-                        <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.rtScore}%</p>
-                        <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Tomatometer</p>
-                      </div>
-                      {selectedFilm.popcornScore > 0 && (
-                        <div className="text-center">
-                          <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
-                          <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.popcornScore}%</p>
-                          <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter</p>
-                        </div>
-                      )}
-                      <div className="text-center">
-                        <div className="text-4xl mb-2">🎬</div>
-                        <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{selectedFilm.bmnScore}</p>
-                        <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>BMN Score</p>
-                      </div>
-                    </div>
-                    
-                    {/* MORE COURIER NEW FONT IN TMDB INFO */}
-                    {tmdbData && (
-                      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                        <h4 className="font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Movie Info</h4>
-                        {tmdbData.overview && <p className="text-sm text-gray-700 mb-3" style={{ fontFamily: 'Courier New, monospace' }}>{tmdbData.overview}</p>}
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          {tmdbData.release_date && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Release Date:</span> {new Date(tmdbData.release_date).toLocaleDateString()}</div>}
-                          {tmdbData.runtime && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Runtime:</span> {tmdbData.runtime} min</div>}
-                          {tmdbData.genres && tmdbData.genres.length > 0 && <div className="col-span-2" style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Genres:</span> {tmdbData.genres.map(g => g.name).join(', ')}</div>}
-                          {tmdbData.budget && tmdbData.budget > 0 && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Budget:</span> ${(tmdbData.budget / 1000000).toFixed(1)}M</div>}
-                          {tmdbData.revenue && tmdbData.revenue > 0 && <div style={{ fontFamily: 'Courier New, monospace' }}><span className="font-semibold">Revenue:</span> ${(tmdbData.revenue / 1000000).toFixed(1)}M</div>}
-                        </div>
-                      </div>
-                    )}
-                    {searchingTmdb && !tmdbData && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center"><p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Loading movie info from TMDB...</p></div>}
-                    {isAdmin && (
-                      <button onClick={() => setEditingFilm(selectedFilm)} className="px-4 py-2 rounded-lg text-white font-semibold mb-4" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}>
-                        <Edit size={16} className="inline mr-2" />Edit Film
+
+              <div className="mt-6">
+                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                  Badge Collection
+                </h3>
+                <div className="flex flex-wrap gap-4">
+                  {(selectedMember.emojis || []).map((emoji, idx) => {
+                    const film = films.find(f => f.emoji === emoji);
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          if (film) {
+                            setSelectedFilm(film);
+                            setPage('filmdetail');
+                            window.history.pushState({ page: 'filmdetail' }, '', '#filmdetail');
+                          }
+                        }}
+                        className="text-4xl p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                        title={film ? `${film.title} - ${new Date(film.date).toLocaleDateString()}` : ''}
+                      >
+                        {emoji}
                       </button>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-{/* IMPROVED VOTING SECTION - MORE COMPACT */}
-                {!selectedFilm.isUpcoming && (
-                  <>
-                    <div className="mb-8 bg-gray-50 rounded-lg p-6 max-w-3xl mx-auto">
-                      <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Score (0-100)</label>
-                          <div className="flex items-center gap-4">
-                            <input 
-                              type="range" 
-                              min="0" 
-                              max="100" 
-                              value={userVote.score} 
-                              onChange={(e) => setUserVote({ ...userVote, score: parseInt(e.target.value) })} 
-                              className="flex-1" 
-                            />
-                            <span className="text-3xl font-bold w-16 text-center" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{userVote.score}</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Rating</label>
-                          <div className="flex gap-2">
-                            {['neutral', 'down', 'double-down'].map(t => (
-                              <button 
-                                key={t} 
-                                onClick={() => setUserVote({ ...userVote, thumbs: t })} 
-                                className={`flex-1 px-4 py-2 rounded-lg transition-all ${userVote.thumbs === t ? 'ring-2 ring-offset-2' : ''}`} 
-                                style={{ 
-                                  fontFamily: 'Courier New, monospace',
-                                  backgroundColor: userVote.thumbs === t ? '#009384' : '#e5e7eb', 
-                                  color: userVote.thumbs === t ? 'white' : 'black',
-                                  ringColor: '#009384'
-                                }}
-                              >
-                                {t === 'neutral' ? '👍 Neutral' : t === 'down' ? '👎 Down' : '👎👎 Double Down'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Review (Optional)</label>
-                          <textarea 
-                            value={userVote.text} 
-                            onChange={(e) => setUserVote({ ...userVote, text: e.target.value })} 
-                            className="w-full px-4 py-2 border rounded-lg" 
-                            style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} 
-                            rows="3" 
-                            placeholder="Share your thoughts..." 
-                          />
-                        </div>
-                        
-                        <button onClick={() => handleVoteSubmit(selectedFilm.id)} className="w-full py-3 rounded-lg text-white font-semibold text-lg" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
-                          Submit Vote
-                        </button>
+              </div>
+            </div>
+
+            {/* Recent Reviews */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                Recent Reviews
+              </h3>
+              <div className="space-y-4">
+                {buzzFeed
+                  .filter(item => item.type === 'review' && item.memberId === selectedMember.id)
+                  .slice(0, 10)
+                  .map(review => (
+                    <div key={review.id} className="border-b pb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          {review.filmTitle}
+                        </span>
+                        <span className="text-lg font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                          {review.score}
+                        </span>
                       </div>
+                      <p style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>{review.text}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {new Date(review.timestamp).toLocaleDateString()}
+                      </p>
                     </div>
-                    
-                    <div>
-                      <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>All Reviews</h3>
-                      <div className="space-y-4">
-                        {buzzFeed.filter(item => item.filmId === selectedFilm.id && item.type === 'review').map(review => (
-                          <div key={review.id} className="border rounded-lg p-4" style={{ borderColor: '#31394d' }}>
-                            <div className="flex justify-between items-start mb-2">
-                              <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{review.memberName}</h4>
-                              <div className="flex items-center gap-4">
-                                <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{review.score}</span>
-                                <span className="text-2xl">{review.thumbs === 'down' ? '👎' : review.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
-                                {isAdmin && (
-                                  <button onClick={() => handleDeleteBuzzItem(review.id)} className="text-red-500 hover:text-red-700">
-                                    <Trash2 size={18} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                            <p className="text-gray-700 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>{review.text}</p>
-                            <button onClick={() => handleLikeBuzzItem(review.id, review.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
-                              <Heart size={20} fill={(review.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(review.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
-                              <span style={{ fontFamily: 'Courier New, monospace' }}>{(review.likes || []).length}</span>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </>
+                  ))}
+              </div>
+            </div>
+
+            {/* Pending Reviews Dashboard */}
+            {userProfile?.id === selectedMember.id && pendingVotes.length > 0 && (
+              <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-6 mt-6">
+                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                  ⚠️ Pending Reviews
+                </h3>
+                <p className="mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                  You attended these screenings but haven't reviewed them yet:
+                </p>
+                <div className="space-y-2">
+                  {pendingVotes.map(film => (
+                    <button
+                      key={film.id}
+                      onClick={() => {
+                        setSelectedFilm(film);
+                        setPage('filmdetail');
+                        window.history.pushState({ page: 'filmdetail' }, '', '#filmdetail');
+                      }}
+                      className="w-full text-left px-4 py-2 bg-white rounded-lg hover:bg-gray-50 font-semibold"
+                      style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}
+                    >
+                      {film.title} - {new Date(film.date).toLocaleDateString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        {/* BUZZ PAGE */}
-        {page === 'buzz' && (
+        {/* UP NEXT PAGE */}
+        {page === 'upnext' && (
           <div>
-            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>The Buzz</h2>
-            <div className="space-y-4">
-              {buzzFeed.map(item => (
-                <div key={item.id} className="bg-white rounded-lg shadow-lg p-6">
-                  {item.type === 'review' && (
-                    <>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex-1">
-                          <h3 className="text-xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{item.memberName} reviewed {item.filmTitle}</h3>
-                          <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{item.timestamp?.toDate ? new Date(item.timestamp.toDate()).toLocaleDateString() : ''}</p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{item.score}</span>
-                          <span className="text-2xl">{item.thumbs === 'down' ? '👎' : item.thumbs === 'double-down' ? '👎👎' : '👍'}</span>
-                          {isAdmin && (
-                            <button onClick={() => handleDeleteBuzzItem(item.id)} className="text-red-500 hover:text-red-700">
-                              <Trash2 size={18} />
-                            </button>
-                          )}
-                        </div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                Up Next - Vote on Submissions
+              </h2>
+              <button 
+                onClick={() => setShowSubmitMovie(true)}
+                className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2"
+                style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+              >
+                <Plus size={20} />
+                Submit Movie
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {submissions.map(sub => (
+                <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
+                  {/* UPDATE #4: Smaller poster size with 2:3 ratio */}
+                  <div className="relative" style={{ paddingBottom: '120%' }}>
+                    <img 
+                      src={sub.image} 
+                      alt={sub.title}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                      {sub.title}
+                    </h3>
+                    <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                      Submitted by: {sub.submitterName}
+                    </p>
+                    {sub.description && (
+                      <p className="text-sm mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                        {sub.description}
+                      </p>
+                    )}
+                    {sub.youtubeLink && getYouTubeEmbedUrl(sub.youtubeLink) && (
+                      <div className="mb-4 relative" style={{ paddingBottom: '56.25%' }}>
+                        <iframe
+                          className="absolute inset-0 w-full h-full rounded"
+                          src={getYouTubeEmbedUrl(sub.youtubeLink)}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
                       </div>
-                      <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{item.text}</p>
-                      <div className="flex gap-4">
-                        <button onClick={() => handleLikeBuzzItem(item.id, item.likes || [])} className="flex items-center gap-2 text-gray-600 hover:text-red-500">
-                          <Heart size={20} fill={(item.likes || []).includes(userProfile?.id) ? 'red' : 'none'} color={(item.likes || []).includes(userProfile?.id) ? 'red' : 'currentColor'} />
-                          <span style={{ fontFamily: 'Courier New, monospace' }}>{(item.likes || []).length}</span>
-                        </button>
-                        <button onClick={() => setReplyingTo(replyingTo === item.id ? null : item.id)} className="flex items-center gap-2 text-gray-600 hover:opacity-70" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
-                          <MessageCircle size={20} />Reply
-                        </button>
-                      </div>
-                      {replyingTo === item.id && (
-                        <div className="mt-4 flex gap-2">
-                          <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write a reply..." className="flex-1 px-4 py-2 border rounded-lg" style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} />
-                          <button onClick={() => handleReplyToBuzz(item.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Send</button>
-                        </div>
-                      )}
-                      {buzzFeed.filter(reply => reply.type === 'reply' && reply.replyTo === item.id).map(reply => (
-                        <div key={reply.id} className="ml-8 mt-4 p-4 bg-gray-50 rounded-lg">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{reply.memberName}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{reply.timestamp?.toDate ? new Date(reply.timestamp.toDate()).toLocaleDateString() : ''}</span>
-                              {isAdmin && (
-                                <button onClick={() => handleDeleteBuzzItem(reply.id)} className="text-red-500 hover:text-red-700">
-                                  <Trash2 size={16} />
-                                </button>
-                              )}
-                            </div>
+                    )}
+
+                    {/* Voting */}
+                    <div className="flex gap-2 mb-4">
+                      <button 
+                        onClick={() => voteOnSubmission(sub.id, 'yes')}
+                        className={`flex-1 py-2 rounded-lg font-semibold flex items-center justify-center gap-2 ${sub.votes?.yes?.includes(userProfile?.id) ? 'ring-2 ring-green-500' : ''}`}
+                        style={{ 
+                          backgroundColor: sub.votes?.yes?.includes(userProfile?.id) ? '#22c55e' : '#e5e5e5',
+                          color: sub.votes?.yes?.includes(userProfile?.id) ? 'white' : '#31394d',
+                          fontFamily: 'Courier New, monospace'
+                        }}
+                      >
+                        <ThumbsUp size={18} />
+                        Yes ({sub.votes?.yes?.length || 0})
+                      </button>
+                      <button 
+                        onClick={() => voteOnSubmission(sub.id, 'no')}
+                        className={`flex-1 py-2 rounded-lg font-semibold flex items-center justify-center gap-2 ${sub.votes?.no?.includes(userProfile?.id) ? 'ring-2 ring-red-500' : ''}`}
+                        style={{ 
+                          backgroundColor: sub.votes?.no?.includes(userProfile?.id) ? '#ef4444' : '#e5e5e5',
+                          color: sub.votes?.no?.includes(userProfile?.id) ? 'white' : '#31394d',
+                          fontFamily: 'Courier New, monospace'
+                        }}
+                      >
+                        <ThumbsDown size={18} />
+                        No ({sub.votes?.no?.length || 0})
+                      </button>
+                    </div>
+
+                    {/* Show who voted */}
+                    {(sub.votes?.yes?.length > 0 || sub.votes?.no?.length > 0) && (
+                      <div className="mb-4 text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                        {sub.votes.yes.length > 0 && (
+                          <div className="mb-1">
+                            <strong className="text-green-600">Yes:</strong> {sub.votes.yes.map(memberId => members.find(m => m.id === memberId)?.name || memberId).join(', ')}
                           </div>
-                          <p className="text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>{reply.text}</p>
+                        )}
+                        {sub.votes.no.length > 0 && (
+                          <div>
+                            <strong className="text-red-600">No:</strong> {sub.votes.no.map(memberId => members.find(m => m.id === memberId)?.name || memberId).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Comments */}
+                    <div className="space-y-2">
+                      {(submissionComments[sub.id] || []).map(comment => (
+                        <div key={comment.id} className="bg-gray-50 p-2 rounded">
+                          <p className="font-semibold text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                            {comment.memberName}
+                          </p>
+                          <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                            {comment.text}
+                          </p>
                         </div>
                       ))}
-                    </>
-                  )}
+                    </div>
+
+                    {commentingOn === sub.id ? (
+                      <div className="mt-2">
+                        <textarea 
+                          value={commentText}
+                          onChange={(e) => setCommentText(e.target.value)}
+                          placeholder="Add a comment..."
+                          className="w-full px-2 py-1 border rounded text-sm"
+                          style={{ borderColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+                          rows="2"
+                        />
+                        <div className="flex gap-2 mt-2">
+                          <button 
+                            onClick={() => addSubmissionComment(sub.id)}
+                            className="px-3 py-1 rounded text-white text-sm font-semibold"
+                            style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+                          >
+                            Post
+                          </button>
+                          <button 
+                            onClick={() => { setCommentingOn(null); setCommentText(''); }}
+                            className="px-3 py-1 bg-gray-300 rounded text-sm font-semibold"
+                            style={{ fontFamily: 'Courier New, monospace' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setCommentingOn(sub.id)}
+                        className="mt-2 text-sm flex items-center gap-1"
+                        style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}
+                      >
+                        <MessageCircle size={16} />
+                        Comment
+                      </button>
+                    )}
+
+                    {isAdmin && (
+                      <button 
+                        onClick={() => deleteSubmission(sub.id)}
+                        className="mt-2 w-full py-1 bg-red-500 text-white rounded text-sm font-semibold flex items-center justify-center gap-1"
+                        style={{ fontFamily: 'Courier New, monospace' }}
+                      >
+                        <Trash2 size={16} />
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* UP NEXT PAGE WITH VOTER VISIBILITY & MORE COURIER NEW */}
-        {page === 'upnext' && (
+        {/* LEADERBOARD PAGE */}
+        {page === 'leaderboard' && (
           <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Up Next</h2>
-              <button onClick={() => setShowSubmitMovie(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
-                <Plus size={20} />Submit Movie
-              </button>
+            <h2 className="text-3xl font-bold mb-6" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Leaderboard
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Most Badges */}
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                  Most Badges
+                </h3>
+                <div className="space-y-4">
+                  {members
+                    .map(m => ({ ...m, badgeCount: (m.emojis || []).length }))
+                    .sort((a, b) => b.badgeCount - a.badgeCount)
+                    .map((member, idx) => (
+                      <div key={member.id} className="flex items-center gap-4">
+                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          #{idx + 1}
+                        </span>
+                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full" />
+                        <div className="flex-1">
+                          <p className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                            {member.name}
+                          </p>
+                          <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                            {member.badgeCount} badges
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Most Reviews */}
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                  Most Reviews
+                </h3>
+                <div className="space-y-4">
+                  {members
+                    .map(m => ({
+                      ...m,
+                      reviewCount: buzzFeed.filter(item => item.type === 'review' && item.memberId === m.id).length
+                    }))
+                    .sort((a, b) => b.reviewCount - a.reviewCount)
+                    .map((member, idx) => (
+                      <div key={member.id} className="flex items-center gap-4">
+                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                          #{idx + 1}
+                        </span>
+                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full" />
+                        <div className="flex-1">
+                          <p className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                            {member.name}
+                          </p>
+                          <p className="text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                            {member.reviewCount} reviews
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
             </div>
-            <div className="space-y-6">
-              {submissions.map(sub => {
-                const yesVotes = Object.entries(sub.votes || {}).filter(([_, v]) => v === 'yes');
-                const noVotes = Object.entries(sub.votes || {}).filter(([_, v]) => v === 'no');
-                const totalVotes = yesVotes.length + noVotes.length;
-                const youtubeId = extractYouTubeId(sub.youtubeLink);
-                const comments = submissionComments[sub.id] || [];
-                
-                return (
-                  <div key={sub.id} className="bg-white rounded-lg shadow-lg p-6">
-                    <div className="grid md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        {sub.image && <img src={sub.image} alt={sub.title} className="w-full h-auto object-cover rounded mb-4" />}
-                        <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{sub.title}</h3>
-                        <p className="text-sm text-gray-600 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>Submitted by: {sub.submittedBy}</p>
-                        {sub.description && <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{sub.description}</p>}
-                        {isAdmin && (
+          </div>
+        )}
+
+        {/* THE BUZZ PAGE - UPDATE #3: Include submission comments */}
+        {page === 'buzz' && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              The Buzz
+            </h2>
+            <div className="space-y-4">
+              {buzzFeed
+                .filter(item => ['review', 'submission', 'submission_comment', 'vote'].includes(item.type))
+                .map(item => (
+                <div key={item.id} className="bg-white rounded-lg shadow-lg p-4">
+                  <div className="flex items-start gap-3">
+                    {members.find(m => m.id === item.memberId) && (
+                      <img 
+                        src={members.find(m => m.id === item.memberId).image} 
+                        alt={item.memberName}
+                        className="w-12 h-12 rounded-full"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                          {item.memberName}
+                        </span>
+                        {item.type === 'review' && (
+                          <>
+                            <span style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>reviewed</span>
+                            <button
+                              onClick={() => {
+                                const film = films.find(f => f.id === item.filmId);
+                                if (film) {
+                                  setSelectedFilm(film);
+                                  setPage('filmdetail');
+                                  window.history.pushState({ page: 'filmdetail' }, '', '#filmdetail');
+                                }
+                              }}
+                              className="font-bold hover:underline"
+                              style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}
+                            >
+                              {item.filmTitle}
+                            </button>
+                            {item.score !== undefined && (
+                              <span className="text-lg font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                                {item.score}
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {item.type === 'vote' && (
+                          <>
+                            <span style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>voted on</span>
+                            <button
+                              onClick={() => {
+                                const film = films.find(f => f.id === item.filmId);
+                                if (film) {
+                                  setSelectedFilm(film);
+                                  setPage('filmdetail');
+                                  window.history.pushState({ page: 'filmdetail' }, '', '#filmdetail');
+                                }
+                              }}
+                              className="font-bold hover:underline"
+                              style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}
+                            >
+                              {item.filmTitle}
+                            </button>
+                            <span className="text-lg font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                              {item.score}
+                            </span>
+                          </>
+                        )}
+                        {item.type === 'submission' && (
+                          <>
+                            <span style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>submitted</span>
+                            <span className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                              {item.submissionTitle}
+                            </span>
+                          </>
+                        )}
+                        {item.type === 'submission_comment' && (
+                          <>
+                            <span style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>commented on</span>
+                            <span className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                              {item.submissionTitle}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {item.text && (
+                        <p className="mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                          {item.text}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-4 text-sm text-gray-400">
+                        <span>{new Date(item.timestamp).toLocaleDateString()}</span>
+                        {item.type === 'review' && (
                           <button 
-                            onClick={() => handleDeleteSubmission(sub.id)} 
-                            className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 flex items-center gap-2"
-                            style={{ fontFamily: 'Courier New, monospace' }}
+                            onClick={() => likeReview(item.id, item.likes || [])}
+                            className="flex items-center gap-1 hover:text-red-500"
                           >
-                            <Trash2 size={16} />
-                            Delete Submission
+                            <Heart 
+                              size={16} 
+                              fill={(item.likes || []).includes(userProfile?.id) ? '#ef4444' : 'none'}
+                              color={(item.likes || []).includes(userProfile?.id) ? '#ef4444' : '#9ca3af'}
+                            />
+                            <span>{(item.likes || []).length}</span>
                           </button>
                         )}
                       </div>
-                      <div>
-                        {youtubeId && (
-                          <div className="mb-4 aspect-video">
-                            <iframe
-                              width="100%"
-                              height="100%"
-                              src={`https://www.youtube.com/embed/${youtubeId}`}
-                              frameBorder="0"
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                              className="rounded"
-                            />
-                          </div>
-                        )}
-                        <div className="mt-4">
-                          <div className="flex justify-between text-sm mb-2" style={{ fontFamily: 'Courier New, monospace' }}>
-                            <span style={{ color: '#009384' }}>👍 Yes: {yesVotes.length}</span>
-                            <span className="text-red-500">👎 No: {noVotes.length}</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-                            <div className="h-2 rounded-full" style={{ width: `${totalVotes > 0 ? (yesVotes.length / totalVotes) * 100 : 0}%`, backgroundColor: '#009384' }} />
-                          </div>
-                          
-                          {/* SHOW WHO VOTED YES AND NO */}
-                          <div className="mb-4 space-y-2">
-                            {yesVotes.length > 0 && (
-                              <div className="p-3 bg-green-50 rounded-lg">
-                                <p className="text-sm font-semibold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Voted Yes:</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {yesVotes.map(([memberId]) => {
-                                    const member = members.find(m => m.id === memberId);
-                                    return member ? (
-                                      <div key={memberId} className="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-sm">
-                                        <img src={member.image} alt={member.name} className="w-6 h-6 rounded-full object-cover" />
-                                        <span className="text-xs" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
-                                      </div>
-                                    ) : null;
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                            {noVotes.length > 0 && (
-                              <div className="p-3 bg-red-50 rounded-lg">
-                                <p className="text-sm font-semibold mb-2 text-red-600" style={{ fontFamily: 'Courier New, monospace' }}>Voted No:</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {noVotes.map(([memberId]) => {
-                                    const member = members.find(m => m.id === memberId);
-                                    return member ? (
-                                      <div key={memberId} className="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-sm">
-                                        <img src={member.image} alt={member.name} className="w-6 h-6 rounded-full object-cover" />
-                                        <span className="text-xs" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
-                                      </div>
-                                    ) : null;
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {!sub.votes?.[userProfile?.id] && (
-                            <div className="flex gap-2 mt-4">
-                              <button onClick={() => handleVoteOnSubmission(sub.id, 'yes')} className="flex-1 px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Yes</button>
-                              <button onClick={() => handleVoteOnSubmission(sub.id, 'no')} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600" style={{ fontFamily: 'Courier New, monospace' }}>No</button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
                     </div>
-                    
-                    {/* COMMENTS WITH COURIER NEW */}
-                    <div className="mt-6 pt-6 border-t" style={{ borderColor: '#31394d' }}>
-                      <h4 className="font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Comments ({comments.length})</h4>
-                      <div className="space-y-3 mb-4">
-                        {comments.map(comment => (
-                          <div key={comment.id} className="p-3 bg-gray-50 rounded-lg">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="font-semibold text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{comment.memberName}</span>
-                              <span className="text-xs text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{comment.timestamp?.toDate ? new Date(comment.timestamp.toDate()).toLocaleDateString() : ''}</span>
-                            </div>
-                            <p className="text-gray-700 text-sm" style={{ fontFamily: 'Courier New, monospace' }}>{comment.text}</p>
-                          </div>
-                        ))}
-                      </div>
-                      {commentingOn === sub.id ? (
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={commentText} 
-                            onChange={(e) => setCommentText(e.target.value)} 
-                            placeholder="Add a comment..." 
-                            className="flex-1 px-4 py-2 border rounded-lg" 
-                            style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} 
-                          />
-                          <button onClick={() => handleCommentOnSubmission(sub.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Send</button>
-                          <button onClick={() => setCommentingOn(null)} className="px-4 py-2 bg-gray-300 rounded-lg font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setCommentingOn(sub.id)} className="text-sm flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
-                          <MessageCircle size={16} />Add comment
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ADMIN PAGE - UPDATE #2: Add admin management */}
+        {page === 'admin' && isAdmin && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Admin Panel
+            </h2>
+
+            {/* Admin Management Section */}
+            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+              <h3 className="text-2xl font-bold mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                <Shield size={24} />
+                Manage Admins
+              </h3>
+              <div className="mb-4">
+                <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                  Current Admins:
+                </p>
+                <div className="space-y-2">
+                  {adminEmails.map(email => (
+                    <div key={email} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                      <span style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                        {email}
+                      </span>
+                      {adminEmails.length > 1 && (
+                        <button 
+                          onClick={() => removeAdmin(email)}
+                          className="px-3 py-1 bg-red-500 text-white rounded text-sm font-semibold"
+                          style={{ fontFamily: 'Courier New, monospace' }}
+                        >
+                          Remove
                         </button>
                       )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-{/* LEADERBOARD PAGE */}
-        {page === 'leaderboard' && (
-          <div>
-            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Leaderboards</h2>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="text-4xl">🏅</div>
-                  <h3 className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Most Badges</h3>
-                </div>
-                <div className="space-y-3">
-                  {members.sort((a, b) => (b.emojis?.length || 0) - (a.emojis?.length || 0)).map((member, i) => (
-                    <div key={member.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => navigateTo('profile', member)}>
-                      <div className="flex items-center gap-3 flex-1">
-                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: i < 3 ? '#FFD700' : '#31394d' }}>#{i + 1}</span>
-                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full object-cover" />
-                        <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.emojis?.length || 0}</span>
-                        <div className="flex">
-                          {member.emojis?.slice(0, 3).map((emoji, j) => <span key={j} className="text-lg">{emoji}</span>)}
-                        </div>
-                      </div>
-                    </div>
                   ))}
                 </div>
               </div>
-              
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="text-4xl">📝</div>
-                  <h3 className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>Most Reviews</h3>
-                </div>
-                <div className="space-y-3">
-                  {members.map(member => ({ ...member, reviewCount: buzzFeed.filter(item => item.memberId === member.id && item.type === 'review').length })).sort((a, b) => b.reviewCount - a.reviewCount).map((member, i) => (
-                    <div key={member.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => navigateTo('profile', member)}>
-                      <div className="flex items-center gap-3 flex-1">
-                        <span className="text-2xl font-bold w-8" style={{ fontFamily: 'Courier New, monospace', color: i < 3 ? '#FFD700' : '#31394d' }}>#{i + 1}</span>
-                        <img src={member.image} alt={member.name} className="w-12 h-12 rounded-full object-cover" />
-                        <span className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{member.name}</span>
-                      </div>
-                      <span className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{member.reviewCount}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="flex gap-2">
+                <input 
+                  type="email"
+                  value={newAdminEmail}
+                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  placeholder="Enter email to add as admin"
+                  className="flex-1 px-4 py-2 border rounded-lg"
+                  style={{ borderColor: '#31394d', fontFamily: 'Courier New, monospace' }}
+                />
+                <button 
+                  onClick={addAdmin}
+                  className="px-6 py-2 rounded-lg text-white font-semibold"
+                  style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+                >
+                  Add Admin
+                </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* ADMIN PAGE - NO SEED DATABASE OPTION */}
-        {page === 'admin' && isAdmin && (
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
-            <div className="space-y-6">
-              <div className="p-4 bg-gray-50 rounded">
-                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Database Status</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Films:</p>
-                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{films.length}</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Members:</p>
-                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{members.length}</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Submissions:</p>
-                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{submissions.length}</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Buzz Items:</p>
-                    <p className="text-2xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{buzzFeed.length}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-4 bg-gray-50 rounded">
-                <h3 className="text-xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>Email to Member ID Mapping</h3>
-                <div className="space-y-2 text-sm">
-                  {Object.entries(EMAIL_TO_MEMBER_ID).map(([email, id]) => (
-                    <div key={email} className="flex justify-between">
-                      <span style={{ fontFamily: 'Courier New, monospace' }}>{email}</span>
-                      <span className="font-mono" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{id}</span>
+            {/* Add Film Section */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                Add New Film
+              </h3>
+              <button 
+                onClick={() => setShowAddFilm(true)}
+                className="px-6 py-2 rounded-lg text-white font-semibold"
+                style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+              >
+                Add Film
+              </button>
+            </div>
+
+            {/* Edit Films */}
+            <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+              <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                Edit Films
+              </h3>
+              <div className="space-y-2">
+                {films.map(film => (
+                  <div key={film.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <span style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+                      {film.title}
+                    </span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setEditingFilm(film)}
+                        className="px-3 py-1 rounded text-white text-sm font-semibold"
+                        style={{ backgroundColor: '#009384', fontFamily: 'Courier New, monospace' }}
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        onClick={() => deleteFilm(film.id)}
+                        className="px-3 py-1 bg-red-500 text-white rounded text-sm font-semibold"
+                        style={{ fontFamily: 'Courier New, monospace' }}
+                      >
+                        Delete
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         )}
-      </main>
+      </div>
 
       {/* ADD FILM MODAL */}
-      {showAddFilm && isAdmin && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg p-8 max-w-2xl w-full my-8">
-            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
-            <form onSubmit={handleAddFilm} className="space-y-4">
+      {showAddFilm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Add New Film
+            </h3>
+            <form onSubmit={addFilm} className="space-y-4">
               <div>
                 <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
                 <input type="text" value={newFilm.title} onChange={(e) => setNewFilm({...newFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
@@ -1549,37 +1765,25 @@ const handleLikeBuzzItem = async (itemId, likes) => {
               <div>
                 <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
                 <div className="space-y-2">
-                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'newfilm', 'default')} className="block" />
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'film')} className="block" />
                   <div className="text-sm text-gray-500">or</div>
                   <input type="url" placeholder="Image URL" value={newFilm.image} onChange={(e) => setNewFilm({...newFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
                 </div>
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster (for upcoming screenings)</label>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>BMN Event Poster</label>
                 <div className="space-y-2">
-                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'newfilm', 'eventPoster')} className="block" />
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'eventPoster')} className="block" />
                   <div className="text-sm text-gray-500">or</div>
                   <input type="url" placeholder="Event Poster URL" value={newFilm.eventPoster} onChange={(e) => setNewFilm({...newFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                  <button 
-                    type="button" 
-                    onClick={() => setNewFilm({...newFilm, eventPoster: 'https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FBMN12b.jpg?alt=media&token=6e20a116-2381-470e-9e86-e6ceb8f19890'})} 
-                    className="text-sm px-4 py-2 rounded text-white" 
-                    style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}
-                  >
-                    Use Default Event Poster
-                  </button>
                 </div>
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
-                <input type="url" value={newFilm.trailer} onChange={(e) => setNewFilm({...newFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</label>
+                <input type="number" min="0" max="100" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score *</label>
-                <input type="number" min="0" max="100" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcorn Score</label>
                 <input type="number" min="0" max="100" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
@@ -1587,22 +1791,18 @@ const handleLikeBuzzItem = async (itemId, likes) => {
                 <input type="date" value={newFilm.date} onChange={(e) => setNewFilm({...newFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji</label>
-                <input type="text" value={newFilm.emoji} onChange={(e) => setNewFilm({...newFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} placeholder="🎬" />
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji *</label>
+                <input type="text" value={newFilm.emoji} onChange={(e) => setNewFilm({...newFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Type</label>
-                <select value={newFilm.type} onChange={(e) => setNewFilm({...newFilm, type: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }}>
-                  <option value="bmn">BMN Screening</option>
-                  <option value="offsite-film">Offsite Film</option>
-                </select>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
+                <input type="url" value={newFilm.trailer} onChange={(e) => setNewFilm({...newFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
-                <label className="flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace' }}>
+                <label className="flex items-center gap-2">
                   <input type="checkbox" checked={newFilm.isUpcoming} onChange={(e) => setNewFilm({...newFilm, isUpcoming: e.target.checked})} />
-                  <span className="font-semibold">Mark as Upcoming Screening</span>
+                  <span style={{ fontFamily: 'Courier New, monospace' }}>Upcoming Screening (not yet revealed)</span>
                 </label>
-                <p className="text-xs text-gray-500 mt-1">If checked, will show event poster until the screening date</p>
               </div>
               <div className="flex gap-4">
                 <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
@@ -1615,14 +1815,121 @@ const handleLikeBuzzItem = async (itemId, likes) => {
         </div>
       )}
 
+      {/* EDIT FILM MODAL */}
+      {editingFilm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Edit Film
+            </h3>
+            <form onSubmit={updateFilm} className="space-y-4">
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                <input type="text" value={editingFilm.title} onChange={(e) => setEditingFilm({...editingFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Subtitle</label>
+                <input type="text" value={editingFilm.subtitle || ''} onChange={(e) => setEditingFilm({...editingFilm, subtitle: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
+                <div className="space-y-2">
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'editFilm')} className="block" />
+                  <div className="text-sm text-gray-500">or</div>
+                  <input type="url" placeholder="Image URL" value={editingFilm.image} onChange={(e) => setEditingFilm({...editingFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                </div>
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>BMN Event Poster</label>
+                <div className="space-y-2">
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'editEventPoster')} className="block" />
+                  <div className="text-sm text-gray-500">or</div>
+                  <input type="url" placeholder="Event Poster URL" value={editingFilm.eventPoster || ''} onChange={(e) => setEditingFilm({...editingFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</label>
+                <input type="number" min="0" max="100" value={editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcorn Score</label>
+                <input type="number" min="0" max="100" value={editingFilm.popcornScore} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>BMN Score</label>
+                <input type="number" min="0" max="100" value={editingFilm.bmnScore} onChange={(e) => setEditingFilm({...editingFilm, bmnScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date *</label>
+                <input type="date" value={editingFilm.date} onChange={(e) => setEditingFilm({...editingFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji *</label>
+                <input type="text" value={editingFilm.emoji} onChange={(e) => setEditingFilm({...editingFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
+                <input type="url" value={editingFilm.trailer || ''} onChange={(e) => setEditingFilm({...editingFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={editingFilm.isUpcoming || false} onChange={(e) => setEditingFilm({...editingFilm, isUpcoming: e.target.checked})} />
+                  <span style={{ fontFamily: 'Courier New, monospace' }}>Upcoming Screening</span>
+                </label>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
+                  {uploadingImage ? 'Uploading...' : 'Save Changes'}
+                </button>
+                <button type="button" onClick={() => setEditingFilm(null)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PROFILE MODAL */}
+      {editingProfile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Edit Profile
+            </h3>
+            <form onSubmit={updateMemberProfile} className="space-y-4">
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Name *</label>
+                <input type="text" value={editingProfile.name} onChange={(e) => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                <input type="text" value={editingProfile.title} onChange={(e) => setEditingProfile({...editingProfile, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Bio</label>
+                <textarea value={editingProfile.bio || ''} onChange={(e) => setEditingProfile({...editingProfile, bio: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="3" />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Profile Image URL</label>
+                <input type="url" value={editingProfile.image} onChange={(e) => setEditingProfile({...editingProfile, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Save Changes</button>
+                <button type="button" onClick={() => setEditingProfile(null)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* SUBMIT MOVIE MODAL */}
       {showSubmitMovie && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg p-8 max-w-2xl w-full my-8">
-            <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Submit a Movie</h2>
-            
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl font-bold mb-4" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              Submit a Movie for Voting
+            </h3>
             {!showTmdbSearch ? (
-              <form onSubmit={handleSubmitMovie} className="space-y-4">
+              <form onSubmit={submitMovieSubmission} className="space-y-4">
                 <div className="mb-4">
                   <button 
                     type="button" 
@@ -1707,6 +2014,7 @@ const handleLikeBuzzItem = async (itemId, likes) => {
     </div>
   );
 }
+
 // INITIAL DATA FUNCTIONS
 function getInitialFilms() {
   return [
