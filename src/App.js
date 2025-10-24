@@ -1878,11 +1878,11 @@ export default App;{showAddFilm && (
                 <input type="url" value={newFilm.eventPoster} onChange={(e) => setNewFilm({...newFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score *</label>
-                <input type="number" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score (leave blank to hide)</label>
+                <input type="number" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score (leave blank to hide)</label>
                 <input type="number" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
               </div>
               <div>
