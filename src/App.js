@@ -80,6 +80,7 @@ function App() {
   const [filmVotes, setFilmVotes] = useState({});
   const [adminEmails, setAdminEmails] = useState(DEFAULT_ADMIN_EMAILS);
   const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [leaderboardView, setLeaderboardView] = useState('members');
 
   const isAdmin = user && adminEmails.includes(user.email);
 
@@ -279,25 +280,25 @@ function App() {
     }
   };
 
-  const handleImageUpload = async (e, collection, field = 'default') => {
+  const handleImageUpload = async (e, targetCollection, field = 'default') => {
     const file = e.target.files[0];
     if (!file) return;
     
     setUploadingImage(true);
     try {
-      const storageRef = ref(storage, `${collection}/${Date.now()}_${file.name}`);
+      const storageRef = ref(storage, `${targetCollection}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
       
-      if (collection === 'films') {
+      if (targetCollection === 'films') {
         if (field === 'eventPoster') {
           setEditingFilm({ ...editingFilm, eventPoster: url });
         } else {
           setEditingFilm({ ...editingFilm, image: url });
         }
-      } else if (collection === 'members') {
+      } else if (targetCollection === 'members') {
         setEditingProfile({ ...editingProfile, image: url });
-      } else if (collection === 'submissions') {
+      } else if (targetCollection === 'submissions') {
         setNewSubmission({ ...newSubmission, image: url });
       }
     } catch (err) {
@@ -430,12 +431,29 @@ function App() {
     e.preventDefault();
     if (!isAdmin) return;
     try {
-      await addDoc(collection(db, 'films'), {
-        ...newFilm,
-        rtScore: parseInt(newFilm.rtScore),
-        popcornScore: parseInt(newFilm.popcornScore || 0),
-        bmnScore: newFilm.isUpcoming ? 0 : parseInt(newFilm.bmnScore || 0)
-      });
+      const filmData = {
+        title: newFilm.title,
+        subtitle: newFilm.subtitle || '',
+        image: newFilm.image,
+        eventPoster: newFilm.eventPoster || '',
+        date: newFilm.date,
+        emoji: newFilm.emoji,
+        type: newFilm.type,
+        trailer: newFilm.trailer || '',
+        isUpcoming: newFilm.isUpcoming || false
+      };
+      
+      if (newFilm.rtScore && newFilm.rtScore !== '') {
+        filmData.rtScore = parseInt(newFilm.rtScore);
+      }
+      if (newFilm.popcornScore && newFilm.popcornScore !== '') {
+        filmData.popcornScore = parseInt(newFilm.popcornScore);
+      }
+      if (!newFilm.isUpcoming && newFilm.bmnScore) {
+        filmData.bmnScore = parseInt(newFilm.bmnScore || 0);
+      }
+      
+      await addDoc(collection(db, 'films'), filmData);
       setNewFilm({
         title: '', subtitle: '', image: '', eventPoster: '', rtScore: '', popcornScore: '',
         bmnScore: 0, date: '', emoji: '🎬', type: 'bmn', trailer: '', isUpcoming: false
@@ -564,20 +582,29 @@ function App() {
     if (!isAdmin || !editingFilm) return;
     try {
       const filmRef = doc(db, 'films', editingFilm.id);
-      await updateDoc(filmRef, {
+      const updateData = {
         title: editingFilm.title,
         subtitle: editingFilm.subtitle || '',
         image: editingFilm.image,
         eventPoster: editingFilm.eventPoster || '',
-        rtScore: parseInt(editingFilm.rtScore),
-        popcornScore: parseInt(editingFilm.popcornScore || 0),
-        bmnScore: parseInt(editingFilm.bmnScore || 0),
         date: editingFilm.date,
         emoji: editingFilm.emoji,
         type: editingFilm.type,
         trailer: editingFilm.trailer || '',
         isUpcoming: editingFilm.isUpcoming || false
-      });
+      };
+      
+      if (editingFilm.rtScore && editingFilm.rtScore !== '') {
+        updateData.rtScore = parseInt(editingFilm.rtScore);
+      }
+      if (editingFilm.popcornScore && editingFilm.popcornScore !== '') {
+        updateData.popcornScore = parseInt(editingFilm.popcornScore);
+      }
+      if (editingFilm.bmnScore && editingFilm.bmnScore !== '') {
+        updateData.bmnScore = parseInt(editingFilm.bmnScore);
+      }
+      
+      await updateDoc(filmRef, updateData);
       setEditingFilm(null);
       await loadData();
       alert('Film updated!');
@@ -637,9 +664,12 @@ function App() {
         style={{ backgroundImage: 'url(https://firebasestorage.googleapis.com/v0/b/bad-movie-night-835d5.firebasestorage.app/o/members%2Fuploads%2FSPLASH%20SCREEN%20001.png?alt=media&token=0ad0ed4d-8c85-4d4a-87bd-4f133dbb94e8)' }}
       >
         <div className="bg-white bg-opacity-95 rounded-lg shadow-2xl p-8 max-w-md w-full mx-4">
-          <h1 className="text-4xl mb-8 text-center" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
+          <h1 className="text-4xl mb-3 text-center" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
             Bad Movie Night
           </h1>
+          <p className="text-center mb-6 text-gray-600" style={{ fontFamily: 'Courier New, monospace', fontSize: '0.95rem', lineHeight: '1.5' }}>
+            Welcome to our top-secret cinema society. A members-only club dedicated to celebrating the gloriously terrible, wonderfully absurd, and delightfully bad films that deserve a second look. 🎬✨
+          </p>
           {!forgotPassword ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <input
@@ -723,10 +753,10 @@ function App() {
     <div className="min-h-screen bg-gray-100">
       <header className="shadow-md" style={{ backgroundColor: '#31394d' }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" style={{ minWidth: '250px' }}>
             <button onClick={() => navigateTo('home')} className="flex items-center gap-3 hover:opacity-80">
-              <Film size={32} style={{ color: '#009384' }} />
-              <h1 className="text-2xl md:text-3xl text-white" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>
+              <Film size={32} style={{ color: '#009384', flexShrink: 0 }} />
+              <h1 className="text-2xl md:text-3xl text-white whitespace-nowrap" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>
                 Bad Movie Night
               </h1>
             </button>
@@ -812,11 +842,13 @@ function App() {
                       </p>
                       {!isUpcoming && (
                         <div className="flex justify-around items-center">
-                          <div className="text-center">
-                            <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
-                            <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
-                          </div>
-                          {film.popcornScore > 0 && (
+                          {film.rtScore !== undefined && film.rtScore !== null && film.rtScore !== '' && (
+                            <div className="text-center">
+                              <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
+                              <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
+                            </div>
+                          )}
+                          {film.popcornScore !== undefined && film.popcornScore !== null && film.popcornScore !== '' && film.popcornScore > 0 && (
                             <div className="text-center">
                               <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-6 h-6 mx-auto mb-1" />
                               <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
@@ -846,11 +878,13 @@ function App() {
                       <span className="font-semibold">Screening Date:</span> {new Date(film.date).toLocaleDateString()}
                     </p>
                     <div className="flex justify-around items-center">
-                      <div className="text-center">
-                        <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
-                        <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
-                      </div>
-                      {film.popcornScore > 0 && (
+                      {film.rtScore !== undefined && film.rtScore !== null && film.rtScore !== '' && (
+                        <div className="text-center">
+                          <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6 mx-auto mb-1" />
+                          <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</p>
+                        </div>
+                      )}
+                      {film.popcornScore !== undefined && film.popcornScore !== null && film.popcornScore !== '' && film.popcornScore > 0 && (
                         <div className="text-center">
                           <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-6 h-6 mx-auto mb-1" />
                           <p className="text-xs font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</p>
@@ -893,7 +927,7 @@ function App() {
                 <h2 className="text-3xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Edit Profile</h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Profile Image URL</label>
+                    <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Profile Image</label>
                     {editingProfile.image && (
                       <div className="mb-2">
                         <img src={editingProfile.image} alt="Profile" className="w-32 h-32 rounded-full object-cover" />
@@ -1008,7 +1042,9 @@ function App() {
               </>
             )}
           </div>
-        )}{page === 'film' && selectedFilm && (
+        )}
+
+        {page === 'film' && selectedFilm && (
           <div className="bg-white rounded-lg shadow-lg p-8">
             {editingFilm && editingFilm.id === selectedFilm.id ? (
               <div className="space-y-4">
@@ -1036,12 +1072,12 @@ function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</label>
-                  <input type="number" value={editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score (leave blank to hide)</label>
+                  <input type="number" value={editingFilm.rtScore || ''} onChange={(e) => setEditingFilm({...editingFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
                 <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score</label>
-                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: parseInt(e.target.value)})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score (leave blank to hide)</label>
+                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
@@ -1084,7 +1120,6 @@ function App() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
                   <div>
-                    <h4 className="text-lg mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Movie Poster</h4>
                     <div className="relative" style={{ paddingBottom: '150%' }}>
                       <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
                     </div>
@@ -1098,10 +1133,12 @@ function App() {
                     )}
                   </div>
                   <div className="md:col-span-2">
-                    <h2 className="text-3xl md:text-4xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
-                    {selectedFilm.subtitle && (
-                      <p className="text-xl mb-4 text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.subtitle}</p>
-                    )}
+                    <div className="flex flex-wrap items-baseline gap-3 mb-4">
+                      <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{selectedFilm.title}</h2>
+                      {selectedFilm.subtitle && (
+                        <p className="text-xl text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.subtitle}</p>
+                      )}
+                    </div>
                     <p className="mb-4 text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>
                       <span className="font-semibold">Screening Date:</span> {new Date(selectedFilm.date).toLocaleDateString()}
                     </p>
@@ -1119,12 +1156,14 @@ function App() {
                     )}
                     
                     <div className="flex gap-8 mb-6">
-                      <div className="text-center">
-                        <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
-                        <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.rtScore}%</p>
-                        <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Tomatometer</p>
-                      </div>
-                      {selectedFilm.popcornScore > 0 && (
+                      {selectedFilm.rtScore !== undefined && selectedFilm.rtScore !== null && selectedFilm.rtScore !== '' && (
+                        <div className="text-center">
+                          <img src={getRTIcon(selectedFilm.rtScore)} alt="RT" className="w-12 h-12 mx-auto mb-2" />
+                          <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.rtScore}%</p>
+                          <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Tomatometer</p>
+                        </div>
+                      )}
+                      {selectedFilm.popcornScore !== undefined && selectedFilm.popcornScore !== null && selectedFilm.popcornScore !== '' && selectedFilm.popcornScore > 0 && (
                         <div className="text-center">
                           <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
                           <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.popcornScore}%</p>
@@ -1162,7 +1201,7 @@ function App() {
 
                 {!selectedFilm.isUpcoming && (
                   <>
-                    <div className="mb-8 bg-gray-50 rounded-lg p-6 max-w-3xl mx-auto">
+                    <div className="mb-8 bg-gray-50 rounded-lg p-6">
                       <h3 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Your Vote</h3>
                       <div className="space-y-4">
                         <div>
@@ -1337,95 +1376,159 @@ function App() {
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Leaderboard</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>🏆 Highest BMN Score</h3>
-                {(() => {
-                  const topFilm = films
-                    .filter(f => !f.isUpcoming)
-                    .map(f => ({ ...f, bmnScore: calculateBMNScore(f.id) }))
-                    .sort((a, b) => b.bmnScore - a.bmnScore)[0];
-                  return topFilm ? (
-                    <div>
-                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topFilm.title}</p>
-                      <p className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topFilm.bmnScore}</p>
-                    </div>
-                  ) : <p>No data yet</p>;
-                })()}
-              </div>
-              
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>💩 Lowest RT Score</h3>
-                {(() => {
-                  const worstFilm = films
-                    .filter(f => !f.isUpcoming)
-                    .sort((a, b) => a.rtScore - b.rtScore)[0];
-                  return worstFilm ? (
-                    <div>
-                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{worstFilm.title}</p>
-                      <p className="text-3xl font-bold text-red-500" style={{ fontFamily: 'Courier New, monospace' }}>{worstFilm.rtScore}%</p>
-                    </div>
-                  ) : <p>No data yet</p>;
-                })()}
-              </div>
-              
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>📝 Most Reviews</h3>
-                {(() => {
-                  const topReviewer = members
-                    .map(m => ({
-                      ...m,
-                      reviewCount: buzzFeed.filter(b => b.type === 'review' && b.memberId === m.id).length
-                    }))
-                    .sort((a, b) => b.reviewCount - a.reviewCount)[0];
-                  return topReviewer ? (
-                    <div>
-                      <p className="font-bold text-xl" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topReviewer.name}</p>
-                      <p className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{topReviewer.reviewCount} reviews</p>
-                    </div>
-                  ) : <p>No data yet</p>;
-                })()}
-              </div>
+            <div className="mb-6 flex gap-2 flex-wrap">
+              <button 
+                onClick={() => setLeaderboardView('members')}
+                className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'members' ? 'text-white' : 'bg-gray-200'}`}
+                style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'members' ? '#009384' : undefined }}
+              >
+                Members
+              </button>
+              <button 
+                onClick={() => setLeaderboardView('bmn-score')}
+                className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'bmn-score' ? 'text-white' : 'bg-gray-200'}`}
+                style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'bmn-score' ? '#009384' : undefined }}
+              >
+                Top BMN Scores
+              </button>
+              <button 
+                onClick={() => setLeaderboardView('rt-score')}
+                className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'rt-score' ? 'text-white' : 'bg-gray-200'}`}
+                style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'rt-score' ? '#009384' : undefined }}
+              >
+                RT Scores
+              </button>
+              <button 
+                onClick={() => setLeaderboardView('popcorn-score')}
+                className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'popcorn-score' ? 'text-white' : 'bg-gray-200'}`}
+                style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'popcorn-score' ? '#009384' : undefined }}
+              >
+                Popcorn Scores
+              </button>
             </div>
-            
-            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-              <table className="w-full">
-                <thead style={{ backgroundColor: '#31394d' }}>
-                  <tr>
-                    <th className="px-6 py-4 text-left text-white" style={{ fontFamily: 'Courier New, monospace' }}>Rank</th>
-                    <th className="px-6 py-4 text-left text-white" style={{ fontFamily: 'Courier New, monospace' }}>Member</th>
-                    <th className="px-6 py-4 text-center text-white" style={{ fontFamily: 'Courier New, monospace' }}>Badges</th>
-                    <th className="px-6 py-4 text-center text-white" style={{ fontFamily: 'Courier New, monospace' }}>Reviews</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members
-                    .map(m => ({
-                      ...m,
-                      badgeCount: (m.emojis || []).length,
-                      reviewCount: buzzFeed.filter(b => b.type === 'review' && b.memberId === m.id).length
-                    }))
-                    .sort((a, b) => b.badgeCount - a.badgeCount || b.reviewCount - a.reviewCount)
-                    .map((member, index) => (
-                      <tr key={member.id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => navigateTo('profile', member)}>
-                        <td className="px-6 py-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#009384' }}>{index + 1}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <img src={member.image} alt={member.name} className="w-10 h-10 rounded-full object-cover" />
-                            <span style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>{member.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center" style={{ fontFamily: 'Courier New, monospace', fontSize: '1.5rem' }}>
-                          {member.badgeCount}
-                        </td>
-                        <td className="px-6 py-4 text-center" style={{ fontFamily: 'Courier New, monospace', fontSize: '1.5rem' }}>
-                          {member.reviewCount}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+
+            {leaderboardView === 'members' && (
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                <table className="w-full">
+                  <thead style={{ backgroundColor: '#31394d' }}>
+                    <tr>
+                      <th className="px-6 py-4 text-left text-white" style={{ fontFamily: 'Courier New, monospace' }}>Rank</th>
+                      <th className="px-6 py-4 text-left text-white" style={{ fontFamily: 'Courier New, monospace' }}>Member</th>
+                      <th className="px-6 py-4 text-center text-white" style={{ fontFamily: 'Courier New, monospace' }}>Badges</th>
+                      <th className="px-6 py-4 text-center text-white" style={{ fontFamily: 'Courier New, monospace' }}>Reviews</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members
+                      .map(m => ({
+                        ...m,
+                        badgeCount: (m.emojis || []).length,
+                        reviewCount: buzzFeed.filter(b => b.type === 'review' && b.memberId === m.id).length
+                      }))
+                      .sort((a, b) => b.badgeCount - a.badgeCount || b.reviewCount - a.reviewCount)
+                      .map((member, index) => (
+                        <tr key={member.id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => navigateTo('profile', member)}>
+                          <td className="px-6 py-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#009384' }}>{index + 1}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <img src={member.image} alt={member.name} className="w-10 h-10 rounded-full object-cover" />
+                              <span style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}>{member.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center" style={{ fontFamily: 'Courier New, monospace', fontSize: '1.5rem' }}>
+                            {member.badgeCount}
+                          </td>
+                          <td className="px-6 py-4 text-center" style={{ fontFamily: 'Courier New, monospace', fontSize: '1.5rem' }}>
+                            {member.reviewCount}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {leaderboardView === 'bmn-score' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {films
+                  .filter(f => !f.isUpcoming)
+                  .map(f => ({ ...f, bmnScore: calculateBMNScore(f.id) }))
+                  .sort((a, b) => b.bmnScore - a.bmnScore)
+                  .slice(0, 3)
+                  .map((film, index) => (
+                    <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-4xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>#{index + 1}</span>
+                        <span className="text-3xl">🏆</span>
+                      </div>
+                      <div className="relative mb-4" style={{ paddingBottom: '150%' }}>
+                        <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
+                      </div>
+                      <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>BMN Score</span>
+                        <span className="text-3xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>{film.bmnScore}</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {leaderboardView === 'rt-score' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {films
+                  .filter(f => !f.isUpcoming && f.rtScore !== undefined && f.rtScore !== null && f.rtScore !== '')
+                  .sort((a, b) => a.rtScore - b.rtScore)
+                  .slice(0, 3)
+                  .map((film, index) => (
+                    <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-4xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>#{index + 1}</span>
+                        <span className="text-3xl">💩</span>
+                      </div>
+                      <div className="relative mb-4" style={{ paddingBottom: '150%' }}>
+                        <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
+                      </div>
+                      <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <img src={getRTIcon(film.rtScore)} alt="RT" className="w-6 h-6" />
+                          <span className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>RT Score</span>
+                        </div>
+                        <span className="text-3xl font-bold text-red-500" style={{ fontFamily: 'Courier New, monospace' }}>{film.rtScore}%</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {leaderboardView === 'popcorn-score' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {films
+                  .filter(f => !f.isUpcoming && f.popcornScore !== undefined && f.popcornScore !== null && f.popcornScore !== '' && f.popcornScore > 0)
+                  .sort((a, b) => a.popcornScore - b.popcornScore)
+                  .slice(0, 3)
+                  .map((film, index) => (
+                    <div key={film.id} onClick={() => navigateTo('film', film)} className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-4xl font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>#{index + 1}</span>
+                        <span className="text-3xl">🍿</span>
+                      </div>
+                      <div className="relative mb-4" style={{ paddingBottom: '150%' }}>
+                        <img src={film.image} alt={film.title} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
+                      </div>
+                      <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{film.title}</h3>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <img src={getPopcornIcon(film.popcornScore)} alt="Popcorn" className="w-6 h-6" />
+                          <span className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>Popcorn Score</span>
+                        </div>
+                        <span className="text-3xl font-bold text-red-500" style={{ fontFamily: 'Courier New, monospace' }}>{film.popcornScore}%</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}{page === 'upnext' && (
           <div>
@@ -1435,7 +1538,7 @@ function App() {
                 <Plus size={20} />Submit Movie
               </button>
             </div>
-            <div className="flex gap-6 overflow-x-auto pb-4" style={{ scrollbarWidth: 'thin' }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {submissions.map(sub => {
                 const upvotes = Object.values(sub.votes || {}).filter(v => v === 'up').length;
                 const downvotes = Object.values(sub.votes || {}).filter(v => v === 'down').length;
@@ -1443,7 +1546,7 @@ function App() {
                 const comments = submissionComments[sub.id] || [];
                 
                 return (
-                  <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden flex-shrink-0" style={{ width: '300px' }}>
+                  <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
                     <div className="relative" style={{ paddingBottom: '120%' }}>
                       <img src={sub.image} alt={sub.title} className="absolute inset-0 w-full h-full object-cover" />
                     </div>
@@ -1608,6 +1711,156 @@ function App() {
           </div>
         )}
       </main>{showAddFilm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
+            <form onSubmit={handleAddFilm} className="space-y-4">
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                <input type="text" value={newFilm.title} onChange={(e) => setNewFilm({...newFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster Image URL *</label>
+                <input type="url" value={newFilm.image} onChange={(e) => setNewFilm({...newFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster Image URL (for upcoming)</label>
+                <input type="url" value={newFilm.eventPoster} onChange={(e) => setNewFilm({...newFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score (leave blank to hide)</label>
+                <input type="number" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score (leave blank to hide)</label>
+                <input type="number" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
+                <input type="url" value={newFilm.trailer} onChange={(e) => setNewFilm({...newFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date *</label>
+                <input type="date" value={newFilm.date} onChange={(e) => setNewFilm({...newFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji *</label>
+                <input type="text" value={newFilm.emoji} onChange={(e) => setNewFilm({...newFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+              </div>
+              <div>
+                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Type *</label>
+                <select value={newFilm.type} onChange={(e) => setNewFilm({...newFilm, type: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }}>
+                  <option value="bmn">BMN Screening</option>
+                  <option value="offsite-film">Offsite Film</option>
+                </select>
+              </div>
+              <div>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={newFilm.isUpcoming} onChange={(e) => setNewFilm({...newFilm, isUpcoming: e.target.checked})} />
+                  <span style={{ fontFamily: 'Courier New, monospace' }}>Upcoming Screening (not yet revealed)</span>
+                </label>
+              </div>
+              <div className="flex gap-4">
+                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Add Film</button>
+                <button type="button" onClick={() => setShowAddFilm(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showSubmitMovie && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Submit Movie Suggestion</h2>
+            {!showTmdbSearch ? (
+              <form onSubmit={handleSubmitMovie} className="space-y-4">
+                <div className="mb-4">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowTmdbSearch(true)} 
+                    className="w-full py-2 rounded-lg text-white font-semibold flex items-center justify-center gap-2" 
+                    style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}
+                  >
+                    <Search size={20} />
+                    Search TMDB Database
+                  </button>
+                  <p className="text-sm text-gray-500 mt-2 text-center">or enter details manually below</p>
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
+                  <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({...newSubmission, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'submissions')} className="block" />
+                    <div className="text-sm text-gray-500">or</div>
+                    <input type="url" placeholder="Image URL" value={newSubmission.image} onChange={(e) => setNewSubmission({...newSubmission, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>YouTube Trailer Link</label>
+                  <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({...newSubmission, youtubeLink: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                </div>
+                <div>
+                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Description</label>
+                  <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({...newSubmission, description: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
+                </div>
+                <div className="flex gap-4">
+                  <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
+                    {uploadingImage ? 'Uploading...' : 'Submit'}
+                  </button>
+                  <button type="button" onClick={() => setShowSubmitMovie(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={tmdbSearchQuery} 
+                    onChange={(e) => setTmdbSearchQuery(e.target.value)} 
+                    placeholder="Search for a movie..." 
+                    className="flex-1 px-4 py-2 border rounded-lg" 
+                    style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }}
+                    onKeyPress={(e) => e.key === 'Enter' && handleTmdbSearch()}
+                  />
+                  <button onClick={handleTmdbSearch} className="px-6 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
+                    Search
+                  </button>
+                </div>
+                
+                {searchingTmdb && <p className="text-center text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Searching...</p>}
+                
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {tmdbSearchResults.map(movie => (
+                    <div key={movie.id} onClick={() => selectTmdbMovie(movie)} className="flex gap-4 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer" style={{ borderColor: '#31394d' }}>
+                      {movie.poster_path && (
+                        <img src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`} alt={movie.title} className="w-16 h-24 object-cover rounded" />
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{movie.title}</h4>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A'}</p>
+                        <p className="text-sm text-gray-700 line-clamp-2">{movie.overview}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <button onClick={() => { setShowTmdbSearch(false); setTmdbSearchResults([]); }} className="w-full py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>
+                  Back to Manual Entry
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;{showAddFilm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
