@@ -100,37 +100,33 @@ function App() {
         setShowLogin(true);
       }
     });
-    loadData();
-    loadAdminList();
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (userProfile && films.length > 0) {
-      checkPendingVotes();
-    }
-  }, [userProfile, films, buzzFeed]);
-
-  useEffect(() => {
-    if (selectedFilm && selectedFilm.title) {
-      setTmdbData(null);
-      searchTMDB(selectedFilm.title);
-      loadFilmVotes(selectedFilm.id);
-    }
-  }, [selectedFilm]);
-
-  useEffect(() => {
     const handlePopState = (e) => {
-      if (e.state && e.state.page) {
+      if (e.state) {
         setPage(e.state.page);
-      } else {
-        setPage('home');
+        setSelectedFilm(e.state.selectedFilm || null);
+        setSelectedMember(e.state.selectedMember || null);
       }
     };
     
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (user && userProfile) {
+      loadData();
+    }
+  }, [user, userProfile]);
+
+  useEffect(() => {
+    if (selectedFilm && selectedFilm.title) {
+      searchTMDB(selectedFilm.title);
+    }
+  }, [selectedFilm]);
 
   const checkPendingVotes = () => {
     const reviewedFilmIds = buzzFeed
@@ -216,7 +212,9 @@ function App() {
       console.error('Error removing admin:', err);
       alert('Failed to remove admin');
     }
-  };const loadData = async () => {
+  };
+
+  const loadData = async () => {
     setLoading(true);
     try {
       const filmsSnap = await getDocs(collection(db, 'films'));
@@ -657,7 +655,10 @@ function App() {
     } catch (err) {
       alert('Delete failed: ' + err.message);
     }
-  };if (showLogin) {
+  };
+
+  // LOGIN PAGE - with welcoming copy as required
+  if (showLogin) {
     return (
       <div 
         className="min-h-screen flex items-center justify-center bg-cover bg-center" 
@@ -920,7 +921,9 @@ function App() {
               ))}
             </div>
           </div>
-        )}{page === 'profile' && selectedMember && (
+        )}
+
+        {page === 'profile' && selectedMember && (
           <div>
             {editingProfile && editingProfile.id === selectedMember.id ? (
               <div className="bg-white rounded-lg shadow-lg p-8">
@@ -1073,11 +1076,11 @@ function App() {
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score (leave blank to hide)</label>
-                  <input type="number" value={editingFilm.rtScore || ''} onChange={(e) => setEditingFilm({...editingFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  <input type="number" value={editingFilm.rtScore === '' || editingFilm.rtScore === undefined || editingFilm.rtScore === null ? '' : editingFilm.rtScore} onChange={(e) => setEditingFilm({...editingFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score (leave blank to hide)</label>
-                  <input type="number" value={editingFilm.popcornScore || ''} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
+                  <input type="number" value={editingFilm.popcornScore === '' || editingFilm.popcornScore === undefined || editingFilm.popcornScore === null ? '' : editingFilm.popcornScore} onChange={(e) => setEditingFilm({...editingFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
                 </div>
                 <div>
                   <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
@@ -1119,14 +1122,14 @@ function App() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-                  <div>
-                    <div className="relative" style={{ paddingBottom: '150%' }}>
+                  <div className="flex flex-col items-start">
+                    <div className="relative w-full" style={{ paddingBottom: '150%' }}>
                       <img src={selectedFilm.image} alt={selectedFilm.title} className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
                     </div>
                     {selectedFilm.eventPoster && (
-                      <div className="mt-4">
+                      <div className="mt-4 w-full">
                         <h4 className="text-lg mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Event Poster</h4>
-                        <div className="relative" style={{ paddingBottom: '150%' }}>
+                        <div className="relative w-full" style={{ paddingBottom: '150%' }}>
                           <img src={selectedFilm.eventPoster} alt="Event Poster" className="absolute inset-0 w-full h-full object-cover rounded-lg shadow-lg" />
                         </div>
                       </div>
@@ -1148,7 +1151,6 @@ function App() {
                         <iframe
                           src={`https://www.youtube.com/embed/${extractYouTubeId(selectedFilm.trailer)}`}
                           title="Trailer"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen
                           className="absolute inset-0 w-full h-full rounded-lg"
                         />
@@ -1163,7 +1165,7 @@ function App() {
                           <p className="text-sm text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Tomatometer</p>
                         </div>
                       )}
-                      {selectedFilm.popcornScore !== undefined && selectedFilm.popcornScore !== null && selectedFilm.popcornScore !== '' && selectedFilm.popcornScore > 0 && (
+                      {selectedFilm.popcornScore !== undefined && selectedFilm.popcornScore !== null && selectedFilm.popcornScore !== '' && (
                         <div className="text-center">
                           <img src={getPopcornIcon(selectedFilm.popcornScore)} alt="Popcorn" className="w-12 h-12 mx-auto mb-2" />
                           <p className="text-2xl font-bold" style={{ fontFamily: 'Courier New, monospace' }}>{selectedFilm.popcornScore}%</p>
@@ -1289,7 +1291,9 @@ function App() {
               </>
             )}
           </div>
-        )}{page === 'buzz' && (
+        )}
+
+        {page === 'buzz' && (
           <div>
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>The Buzz</h2>
             <div className="space-y-4">
@@ -1389,21 +1393,21 @@ function App() {
                 className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'bmn-score' ? 'text-white' : 'bg-gray-200'}`}
                 style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'bmn-score' ? '#009384' : undefined }}
               >
-                Top BMN Scores
+                Top 3 BMN Scores
               </button>
               <button 
                 onClick={() => setLeaderboardView('rt-score')}
                 className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'rt-score' ? 'text-white' : 'bg-gray-200'}`}
                 style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'rt-score' ? '#009384' : undefined }}
               >
-                RT Scores
+                Worst 3 RT Scores
               </button>
               <button 
                 onClick={() => setLeaderboardView('popcorn-score')}
                 className={`px-4 py-2 rounded-lg font-semibold ${leaderboardView === 'popcorn-score' ? 'text-white' : 'bg-gray-200'}`}
                 style={{ fontFamily: 'Courier New, monospace', backgroundColor: leaderboardView === 'popcorn-score' ? '#009384' : undefined }}
               >
-                Popcorn Scores
+                Worst 3 Popcorn Scores
               </button>
             </div>
 
@@ -1505,7 +1509,7 @@ function App() {
             {leaderboardView === 'popcorn-score' && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {films
-                  .filter(f => !f.isUpcoming && f.popcornScore !== undefined && f.popcornScore !== null && f.popcornScore !== '' && f.popcornScore > 0)
+                  .filter(f => !f.isUpcoming && f.popcornScore !== undefined && f.popcornScore !== null && f.popcornScore !== '')
                   .sort((a, b) => a.popcornScore - b.popcornScore)
                   .slice(0, 3)
                   .map((film, index) => (
@@ -1530,7 +1534,9 @@ function App() {
               </div>
             )}
           </div>
-        )}{page === 'upnext' && (
+        )}
+
+        {page === 'upnext' && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl md:text-4xl" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Up Next</h2>
@@ -1538,7 +1544,7 @@ function App() {
                 <Plus size={20} />Submit Movie
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="space-y-6">
               {submissions.map(sub => {
                 const upvotes = Object.values(sub.votes || {}).filter(v => v === 'up').length;
                 const downvotes = Object.values(sub.votes || {}).filter(v => v === 'down').length;
@@ -1547,86 +1553,63 @@ function App() {
                 
                 return (
                   <div key={sub.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
-                    <div className="relative" style={{ paddingBottom: '120%' }}>
-                      <img src={sub.image} alt={sub.title} className="absolute inset-0 w-full h-full object-cover" />
-                    </div>
-                    <div className="p-4">
-                      <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{sub.title}</h3>
-                      <p className="text-sm text-gray-600 mb-2" style={{ fontFamily: 'Courier New, monospace' }}>Submitted by {sub.submittedBy}</p>
-                      {sub.description && <p className="text-sm text-gray-700 mb-3" style={{ fontFamily: 'Courier New, monospace' }}>{sub.description}</p>}
-                      {sub.youtubeLink && extractYouTubeId(sub.youtubeLink) && (
-                        <div className="mb-3 relative" style={{ paddingBottom: '56.25%' }}>
-                          <iframe
-                            src={`https://www.youtube.com/embed/${extractYouTubeId(sub.youtubeLink)}`}
-                            title="Trailer"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                            className="absolute inset-0 w-full h-full rounded"
-                          />
+                    <div className="flex flex-col md:flex-row gap-4 p-6">
+                      <div className="flex-shrink-0 w-full md:w-48">
+                        <div className="relative" style={{ paddingBottom: '150%' }}>
+                          <img src={sub.image} alt={sub.title} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
                         </div>
-                      )}
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => handleVoteOnSubmission(sub.id, 'up')} 
-                            className={`px-3 py-1 rounded flex items-center gap-1 ${userVoted === 'up' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
-                            style={{ fontFamily: 'Courier New, monospace' }}
-                          >
-                            <ThumbsUp size={16} />{upvotes}
-                          </button>
-                          <button 
-                            onClick={() => handleVoteOnSubmission(sub.id, 'down')} 
-                            className={`px-3 py-1 rounded flex items-center gap-1 ${userVoted === 'down' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
-                            style={{ fontFamily: 'Courier New, monospace' }}
-                          >
-                            <ThumbsDown size={16} />{downvotes}
-                          </button>
-                        </div>
-                        {isAdmin && (
-                          <button onClick={() => handleDeleteSubmission(sub.id)} className="text-red-500 hover:text-red-700">
-                            <Trash2 size={18} />
-                          </button>
-                        )}
                       </div>
-                      
-                      <div className="border-t pt-3" style={{ borderColor: '#e5e7eb' }}>
-                        <button 
-                          onClick={() => setCommentingOn(commentingOn === sub.id ? null : sub.id)} 
-                          className="flex items-center gap-2 text-sm mb-2" 
-                          style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}
-                        >
-                          <MessageCircle size={16} />
-                          {comments.length} Comment{comments.length !== 1 ? 's' : ''}
-                        </button>
+                      <div className="flex-1">
+                        <h3 className="text-2xl mb-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>{sub.title}</h3>
+                        <p className="text-sm text-gray-600 mb-3" style={{ fontFamily: 'Courier New, monospace' }}>Suggested by {sub.submittedBy}</p>
+                        {sub.description && <p className="text-gray-700 mb-4" style={{ fontFamily: 'Courier New, monospace' }}>{sub.description}</p>}
+                        {sub.youtubeLink && (
+                          <div className="mb-4">
+                            <a href={sub.youtubeLink} target="_blank" rel="noopener noreferrer" className="text-sm hover:underline" style={{ fontFamily: 'Courier New, monospace', color: '#009384' }}>
+                              Watch Trailer →
+                            </a>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-4 mb-4">
+                          <button onClick={() => handleVoteOnSubmission(sub.id, 'up')} className={`flex items-center gap-2 px-4 py-2 rounded-lg ${userVoted === 'up' ? 'bg-green-500 text-white' : 'bg-gray-200'}`} style={{ fontFamily: 'Courier New, monospace' }}>
+                            <ThumbsUp size={20} />
+                            <span>{upvotes}</span>
+                          </button>
+                          <button onClick={() => handleVoteOnSubmission(sub.id, 'down')} className={`flex items-center gap-2 px-4 py-2 rounded-lg ${userVoted === 'down' ? 'bg-red-500 text-white' : 'bg-gray-200'}`} style={{ fontFamily: 'Courier New, monospace' }}>
+                            <ThumbsDown size={20} />
+                            <span>{downvotes}</span>
+                          </button>
+                          <button onClick={() => setCommentingOn(commentingOn === sub.id ? null : sub.id)} className="flex items-center gap-2 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300" style={{ fontFamily: 'Courier New, monospace' }}>
+                            <MessageCircle size={20} />
+                            <span>{comments.length}</span>
+                          </button>
+                          {isAdmin && (
+                            <button onClick={() => handleDeleteSubmission(sub.id)} className="ml-auto text-red-500 hover:text-red-700">
+                              <Trash2 size={20} />
+                            </button>
+                          )}
+                        </div>
                         
                         {commentingOn === sub.id && (
-                          <div className="mb-3">
-                            <textarea 
-                              value={commentText} 
-                              onChange={(e) => setCommentText(e.target.value)} 
-                              placeholder="Add a comment..." 
-                              className="w-full px-3 py-2 border rounded-lg text-sm mb-2" 
-                              style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }}
-                              rows="2"
-                            />
-                            <button 
-                              onClick={() => handleCommentOnSubmission(sub.id)} 
-                              className="px-4 py-1 rounded-lg text-white text-sm font-semibold" 
-                              style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}
-                            >
-                              Post Comment
-                            </button>
+                          <div className="mb-4 flex gap-2">
+                            <input type="text" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Add a comment..." className="flex-1 px-4 py-2 border rounded-lg" style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }} />
+                            <button onClick={() => handleCommentOnSubmission(sub.id)} className="px-4 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Post</button>
                           </div>
                         )}
                         
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {comments.map(comment => (
-                            <div key={comment.id} className="bg-gray-50 p-2 rounded text-sm">
-                              <p className="font-semibold mb-1" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{comment.memberName}</p>
-                              <p style={{ fontFamily: 'Courier New, monospace' }}>{comment.text}</p>
-                            </div>
-                          ))}
-                        </div>
+                        {comments.length > 0 && (
+                          <div className="space-y-2">
+                            {comments.map(comment => (
+                              <div key={comment.id} className="p-3 bg-gray-50 rounded-lg">
+                                <div className="flex justify-between items-start mb-1">
+                                  <span className="font-semibold text-sm" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{comment.memberName}</span>
+                                  <span className="text-xs text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>{comment.timestamp?.toDate ? new Date(comment.timestamp.toDate()).toLocaleDateString() : ''}</span>
+                                </div>
+                                <p className="text-sm text-gray-700" style={{ fontFamily: 'Courier New, monospace' }}>{comment.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1641,12 +1624,12 @@ function App() {
             <h2 className="text-3xl md:text-4xl mb-6" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Admin Panel</h2>
             
             <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <h3 className="text-2xl font-bold mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
+              <h3 className="text-2xl mb-4 flex items-center gap-2" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>
                 <Shield size={24} />
-                Manage Admins
+                Admin Management
               </h3>
               <div className="mb-4">
-                <p className="text-sm mb-2" style={{ fontFamily: 'Courier New, monospace', color: '#666' }}>
+                <p className="mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>
                   Current Admins:
                 </p>
                 <div className="space-y-2">
@@ -1713,156 +1696,6 @@ function App() {
       </main>
 
       {showAddFilm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
-            <form onSubmit={handleAddFilm} className="space-y-4">
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
-                <input type="text" value={newFilm.title} onChange={(e) => setNewFilm({...newFilm, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster Image URL *</label>
-                <input type="url" value={newFilm.image} onChange={(e) => setNewFilm({...newFilm, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Event Poster Image URL (for upcoming)</label>
-                <input type="url" value={newFilm.eventPoster} onChange={(e) => setNewFilm({...newFilm, eventPoster: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>RT Score (leave blank to hide)</label>
-                <input type="number" value={newFilm.rtScore} onChange={(e) => setNewFilm({...newFilm, rtScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Popcornmeter Score (leave blank to hide)</label>
-                <input type="number" value={newFilm.popcornScore} onChange={(e) => setNewFilm({...newFilm, popcornScore: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Trailer URL (YouTube)</label>
-                <input type="url" value={newFilm.trailer} onChange={(e) => setNewFilm({...newFilm, trailer: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Date *</label>
-                <input type="date" value={newFilm.date} onChange={(e) => setNewFilm({...newFilm, date: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Emoji *</label>
-                <input type="text" value={newFilm.emoji} onChange={(e) => setNewFilm({...newFilm, emoji: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-              </div>
-              <div>
-                <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Type *</label>
-                <select value={newFilm.type} onChange={(e) => setNewFilm({...newFilm, type: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }}>
-                  <option value="bmn">BMN Screening</option>
-                  <option value="offsite-film">Offsite Film</option>
-                </select>
-              </div>
-              <div>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={newFilm.isUpcoming} onChange={(e) => setNewFilm({...newFilm, isUpcoming: e.target.checked})} />
-                  <span style={{ fontFamily: 'Courier New, monospace' }}>Upcoming Screening (not yet revealed)</span>
-                </label>
-              </div>
-              <div className="flex gap-4">
-                <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>Add Film</button>
-                <button type="button" onClick={() => setShowAddFilm(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showSubmitMovie && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Submit Movie Suggestion</h2>
-            {!showTmdbSearch ? (
-              <form onSubmit={handleSubmitMovie} className="space-y-4">
-                <div className="mb-4">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowTmdbSearch(true)} 
-                    className="w-full py-2 rounded-lg text-white font-semibold flex items-center justify-center gap-2" 
-                    style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#31394d' }}
-                  >
-                    <Search size={20} />
-                    Search TMDB Database
-                  </button>
-                  <p className="text-sm text-gray-500 mt-2 text-center">or enter details manually below</p>
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Title *</label>
-                  <input type="text" value={newSubmission.title} onChange={(e) => setNewSubmission({...newSubmission, title: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Movie Poster *</label>
-                  <div className="space-y-2">
-                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'submissions')} className="block" />
-                    <div className="text-sm text-gray-500">or</div>
-                    <input type="url" placeholder="Image URL" value={newSubmission.image} onChange={(e) => setNewSubmission({...newSubmission, image: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} required />
-                  </div>
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>YouTube Trailer Link</label>
-                  <input type="url" value={newSubmission.youtubeLink} onChange={(e) => setNewSubmission({...newSubmission, youtubeLink: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} />
-                </div>
-                <div>
-                  <label className="block mb-2 font-semibold" style={{ fontFamily: 'Courier New, monospace' }}>Description</label>
-                  <textarea value={newSubmission.description} onChange={(e) => setNewSubmission({...newSubmission, description: e.target.value})} className="w-full px-4 py-2 border rounded-lg" style={{ borderColor: '#31394d' }} rows="4" />
-                </div>
-                <div className="flex gap-4">
-                  <button type="submit" className="flex-1 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }} disabled={uploadingImage}>
-                    {uploadingImage ? 'Uploading...' : 'Submit'}
-                  </button>
-                  <button type="button" onClick={() => setShowSubmitMovie(false)} className="flex-1 py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>Cancel</button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={tmdbSearchQuery} 
-                    onChange={(e) => setTmdbSearchQuery(e.target.value)} 
-                    placeholder="Search for a movie..." 
-                    className="flex-1 px-4 py-2 border rounded-lg" 
-                    style={{ fontFamily: 'Courier New, monospace', borderColor: '#31394d' }}
-                    onKeyPress={(e) => e.key === 'Enter' && handleTmdbSearch()}
-                  />
-                  <button onClick={handleTmdbSearch} className="px-6 py-2 rounded-lg text-white font-semibold" style={{ fontFamily: 'Courier New, monospace', backgroundColor: '#009384' }}>
-                    Search
-                  </button>
-                </div>
-                
-                {searchingTmdb && <p className="text-center text-gray-500" style={{ fontFamily: 'Courier New, monospace' }}>Searching...</p>}
-                
-                <div className="max-h-96 overflow-y-auto space-y-2">
-                  {tmdbSearchResults.map(movie => (
-                    <div key={movie.id} onClick={() => selectTmdbMovie(movie)} className="flex gap-4 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer" style={{ borderColor: '#31394d' }}>
-                      {movie.poster_path && (
-                        <img src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`} alt={movie.title} className="w-16 h-24 object-cover rounded" />
-                      )}
-                      <div className="flex-1">
-                        <h4 className="font-bold" style={{ fontFamily: 'Courier New, monospace', color: '#31394d' }}>{movie.title}</h4>
-                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Courier New, monospace' }}>{movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A'}</p>
-                        <p className="text-sm text-gray-700 line-clamp-2">{movie.overview}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                <button onClick={() => { setShowTmdbSearch(false); setTmdbSearchResults([]); }} className="w-full py-2 bg-gray-300 rounded-lg font-semibold hover:bg-gray-400" style={{ fontFamily: 'Courier New, monospace' }}>
-                  Back to Manual Entry
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default App;{showAddFilm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl mb-4" style={{ fontFamily: 'Courier New, monospace', fontWeight: 'bold', color: '#31394d' }}>Add New Film</h2>
